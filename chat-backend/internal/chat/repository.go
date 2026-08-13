@@ -3,28 +3,38 @@ package chat
 import (
 	"chat-backend/internal/models"
 	"context"
-	"errors"
-	"maps"
 	"slices"
 	"sync"
 )
 
+type roomMetadata struct {
+	Name         string
+	IsDM         bool
+	Participants []string
+}
+
 type Repository interface {
 	SaveMessage(ctx context.Context, msg *models.MessageBroadcast) error
 	GetHistory(ctx context.Context, roomID string) ([]*models.MessageBroadcast, error)
-	CreateChannel(ctx context.Context, roomName string) error
+	GetRoomMetadata(ctx context.Context, roomID string) (roomName string, isDM bool, exists bool, err error)
+	RoomExistsByName(ctx context.Context, roomName string) (bool, error)
+	CreateChannel(ctx context.Context, roomID string, roomName string, isDM bool, participants ...string) error
+	ListRooms(ctx context.Context) ([]models.RoomResponse, error)
+	ListUserDMs(ctx context.Context, userID string) ([]models.RoomResponse, error)
+	IsRoomParticipant(ctx context.Context, roomID string, userID string) (bool, error)
+	GetDMParticipants(ctx context.Context, roomID string) ([]string, error)
 }
 
 type memoryRepository struct {
 	history  map[string][]*models.MessageBroadcast
-	channels map[string][]string
+	channels map[string]roomMetadata
 	mu       sync.RWMutex
 }
 
 func NewRepository() Repository {
 	return &memoryRepository{
 		history:  make(map[string][]*models.MessageBroadcast),
-		channels: make(map[string][]string),
+		channels: make(map[string]roomMetadata),
 	}
 }
 
@@ -48,13 +58,102 @@ func (r *memoryRepository) GetHistory(ctx context.Context, roomID string) ([]*mo
 	return messages, nil
 }
 
-func (r *memoryRepository) CreateChannel(ctx context.Context, roomName string) error {
+func (r *memoryRepository) GetRoomMetadata(ctx context.Context, roomID string) (string, bool, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	meta, exists := r.channels[roomID]
+	if !exists {
+		return "", false, false, nil
+	}
+	return meta.Name, meta.IsDM, true, nil
+}
+
+func (r *memoryRepository) RoomExistsByName(ctx context.Context, roomName string) (bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, meta := range r.channels {
+		if meta.Name == roomName {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *memoryRepository) CreateChannel(ctx context.Context, roomID string, roomName string, isDM bool, participants ...string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if c := maps.Values(r.channels); slices.Contains(c, roomName) {
-		return errors.New("Canal já existente")
+	r.channels[roomID] = roomMetadata{
+		Name:         roomName,
+		IsDM:         isDM,
+		Participants: participants,
 	}
-	r.channels[roomID] = roomName
+	if r.history[roomID] == nil {
+		r.history[roomID] = []*models.MessageBroadcast{}
+	}
+
 	return nil
+}
+
+func (r *memoryRepository) ListRooms(ctx context.Context) ([]models.RoomResponse, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var rooms []models.RoomResponse
+
+	for id, meta := range r.channels {
+		if meta.IsDM {
+			continue
+		}
+		rooms = append(rooms, models.RoomResponse{
+			ID:   id,
+			Name: meta.Name,
+			IsDM: meta.IsDM,
+		})
+	}
+	return rooms, nil
+}
+
+func (r *memoryRepository) ListUserDMs(ctx context.Context, userID string) ([]models.RoomResponse, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var rooms []models.RoomResponse
+	for id, meta := range r.channels {
+		if !meta.IsDM {
+			continue
+		}
+		if slices.Contains(meta.Participants, userID) {
+			rooms = append(rooms, models.RoomResponse{
+				ID:   id,
+				Name: meta.Name,
+				IsDM: meta.IsDM,
+			})
+		}
+	}
+	return rooms, nil
+}
+
+func (r *memoryRepository) IsRoomParticipant(ctx context.Context, roomID string, userID string) (bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	meta, exists := r.channels[roomID]
+	if !exists {
+		return false, nil
+	}
+	return slices.Contains(meta.Participants, userID), nil
+}
+
+func (r *memoryRepository) GetDMParticipants(ctx context.Context, roomID string) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	meta, exists := r.channels[roomID]
+	if !exists {
+		return nil, nil
+	}
+	return meta.Participants, nil
 }

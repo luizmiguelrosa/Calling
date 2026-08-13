@@ -22,3 +22,18 @@ type IncomingMessage struct {
 	RoomID  string `json:"room_id" validate:"required,min=3"`
 	Content string `json:"content" validate:"required,max=500"`
 }
+
+type CreateRoomInput struct {
+	Name string `json:"name" validate:"required,min=3,max=32"`
+	IsDM bool   `json:"is_dm"`
+}
+
+type CreateDMInput struct {
+	ReceiverID string `json:"receiver_id" validate:"required"`
+}
+
+type RoomResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	IsDM bool   `json:"is_dm"`
+}

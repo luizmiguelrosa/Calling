@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	log.Println("Iniciando servidor híbrido modular... 🚀")
+	log.Println("Iniciando servidor... 🚀")
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -30,6 +30,10 @@ func main() {
 		r.Get("/historico", managerChat.GetHistory)
 		r.Get("/onlineUsers", managerChat.GetOnlineUsers)
 		r.Get("/chat", managerChat.ManageConnection)
+		r.Post("/rooms", managerChat.CreateRoom)
+		r.Get("/rooms", managerChat.ListRooms)
+		r.Post("/rooms/dm", managerChat.CreateDM)
+		r.Get("/rooms/dm", managerChat.ListUserDMs)
 	})
 
 	if err != nil {
