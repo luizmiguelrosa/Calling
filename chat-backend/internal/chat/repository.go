@@ -1,17 +1,14 @@
 package chat
 
 import (
+	"chat-backend/internal/database/sqlc"
 	"chat-backend/internal/models"
 	"context"
-	"slices"
-	"sync"
-)
+	"errors"
 
-type roomMetadata struct {
-	Name         string
-	IsDM         bool
-	Participants []string
-}
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
 
 type Repository interface {
 	SaveMessage(ctx context.Context, msg *models.MessageBroadcast) error
@@ -25,135 +22,129 @@ type Repository interface {
 	GetDMParticipants(ctx context.Context, roomID string) ([]string, error)
 }
 
-type memoryRepository struct {
-	history  map[string][]*models.MessageBroadcast
-	channels map[string]roomMetadata
-	mu       sync.RWMutex
+type postgresRepository struct {
+	q *sqlc.Queries
 }
 
-func NewRepository() Repository {
-	return &memoryRepository{
-		history:  make(map[string][]*models.MessageBroadcast),
-		channels: make(map[string]roomMetadata),
+func NewRepository(pool *pgxpool.Pool) Repository {
+	return &postgresRepository{
+		q: sqlc.New(pool),
 	}
 }
 
-func (r *memoryRepository) SaveMessage(ctx context.Context, msg *models.MessageBroadcast) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.history[msg.RoomID] = append(r.history[msg.RoomID], msg)
-	return nil
+func (r *postgresRepository) SaveMessage(ctx context.Context, msg *models.MessageBroadcast) error {
+	return r.q.SaveMessage(ctx, sqlc.SaveMessageParams{
+		RoomID:   msg.RoomID,
+		Author:   msg.Author,
+		Content:  msg.Content,
+		SendedAt: msg.SentAt,
+	})
 }
 
-func (r *memoryRepository) GetHistory(ctx context.Context, roomID string) ([]*models.MessageBroadcast, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	messages, exists := r.history[roomID]
-	if !exists {
-		return []*models.MessageBroadcast{}, nil
+func (r *postgresRepository) GetHistory(ctx context.Context, roomID string) ([]*models.MessageBroadcast, error) {
+	rows, err := r.q.GetHistory(ctx, roomID)
+	if err != nil {
+		return nil, err
 	}
 
+	messages := make([]*models.MessageBroadcast, 0, len(rows))
+	for _, row := range rows {
+		messages = append(messages, &models.MessageBroadcast{
+			RoomID:  row.RoomID,
+			Author:  row.Author,
+			Content: row.Content,
+			SentAt:  row.SendedAt,
+		})
+	}
 	return messages, nil
 }
 
-func (r *memoryRepository) GetRoomMetadata(ctx context.Context, roomID string) (string, bool, bool, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	meta, exists := r.channels[roomID]
-	if !exists {
-		return "", false, false, nil
-	}
-	return meta.Name, meta.IsDM, true, nil
-}
-
-func (r *memoryRepository) RoomExistsByName(ctx context.Context, roomName string) (bool, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	for _, meta := range r.channels {
-		if meta.Name == roomName {
-			return true, nil
+func (r *postgresRepository) GetRoomMetadata(ctx context.Context, roomID string) (string, bool, bool, error) {
+	row, err := r.q.GetRoomMetadata(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, false, nil
 		}
+		return "", false, false, err
 	}
-	return false, nil
+	return row.Name, row.IsDm, true, nil
 }
 
-func (r *memoryRepository) CreateChannel(ctx context.Context, roomID string, roomName string, isDM bool, participants ...string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (r *postgresRepository) RoomExistsByName(ctx context.Context, roomName string) (bool, error) {
+	return r.q.RoomExistsByName(ctx, roomName)
+}
 
-	r.channels[roomID] = roomMetadata{
-		Name:         roomName,
-		IsDM:         isDM,
-		Participants: participants,
+func (r *postgresRepository) CreateChannel(ctx context.Context, roomID string, roomName string, isDM bool, participants ...string) error {
+	if err := r.q.CreateRoom(ctx, sqlc.CreateRoomParams{
+		ID:   roomID,
+		Name: roomName,
+		IsDm: isDM,
+	}); err != nil {
+		return err
 	}
-	if r.history[roomID] == nil {
-		r.history[roomID] = []*models.MessageBroadcast{}
+
+	for _, participant := range participants {
+		if err := r.q.AddRoomParticipant(ctx, sqlc.AddRoomParticipantParams{
+			RoomID: roomID,
+			UserID: participant,
+		}); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func (r *memoryRepository) ListRooms(ctx context.Context) ([]models.RoomResponse, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+func (r *postgresRepository) ListRooms(ctx context.Context) ([]models.RoomResponse, error) {
+	rows, err := r.q.ListRooms(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	var rooms []models.RoomResponse
-
-	for id, meta := range r.channels {
-		if meta.IsDM {
-			continue
-		}
+	rooms := make([]models.RoomResponse, 0, len(rows))
+	for _, row := range rows {
 		rooms = append(rooms, models.RoomResponse{
-			ID:   id,
-			Name: meta.Name,
-			IsDM: meta.IsDM,
+			ID:   row.ID,
+			Name: row.Name,
+			IsDM: row.IsDm,
 		})
 	}
 	return rooms, nil
 }
 
-func (r *memoryRepository) ListUserDMs(ctx context.Context, userID string) ([]models.RoomResponse, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+func (r *postgresRepository) ListUserDMs(ctx context.Context, userID string) ([]models.RoomResponse, error) {
+	rows, err := r.q.ListUserDMs(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
 
-	var rooms []models.RoomResponse
-	for id, meta := range r.channels {
-		if !meta.IsDM {
-			continue
-		}
-		if slices.Contains(meta.Participants, userID) {
-			rooms = append(rooms, models.RoomResponse{
-				ID:   id,
-				Name: meta.Name,
-				IsDM: meta.IsDM,
-			})
-		}
+	rooms := make([]models.RoomResponse, 0, len(rows))
+	for _, row := range rows {
+		rooms = append(rooms, models.RoomResponse{
+			ID:   row.ID,
+			Name: row.Name,
+			IsDM: row.IsDm,
+		})
 	}
 	return rooms, nil
 }
 
-func (r *memoryRepository) IsRoomParticipant(ctx context.Context, roomID string, userID string) (bool, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	meta, exists := r.channels[roomID]
-	if !exists {
-		return false, nil
-	}
-	return slices.Contains(meta.Participants, userID), nil
+func (r *postgresRepository) IsRoomParticipant(ctx context.Context, roomID string, userID string) (bool, error) {
+	return r.q.IsRoomParticipant(ctx, sqlc.IsRoomParticipantParams{
+		RoomID: roomID,
+		UserID: userID,
+	})
 }
 
-func (r *memoryRepository) GetDMParticipants(ctx context.Context, roomID string) ([]string, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	meta, exists := r.channels[roomID]
-	if !exists {
-		return nil, nil
+func (r *postgresRepository) GetDMParticipants(ctx context.Context, roomID string) ([]string, error) {
+	rows, err := r.q.GetDMParticipants(ctx, roomID)
+	if err != nil {
+		return nil, err
 	}
-	return meta.Participants, nil
+
+	participants := make([]string, 0, len(rows))
+	for _, row := range rows {
+		participants = append(participants, row)
+	}
+	return participants, nil
 }

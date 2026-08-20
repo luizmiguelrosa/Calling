@@ -3,6 +3,7 @@ package chat
 import (
 	"chat-backend/internal/httputil"
 	"chat-backend/internal/models"
+	"chat-backend/internal/user"
 	"context"
 	"encoding/json"
 	"log"
@@ -26,15 +27,17 @@ var upgrader = websocket.Upgrader{
 }
 
 type Manager struct {
-	clients map[string]*websocket.Conn
-	service Service
-	mu      sync.RWMutex
+	clients     map[string]*websocket.Conn
+	service     Service
+	userService user.Service
+	mu          sync.RWMutex
 }
 
-func NewManager(service Service) *Manager {
+func NewManager(service Service, userService user.Service) *Manager {
 	return &Manager{
-		clients: make(map[string]*websocket.Conn),
-		service: service,
+		clients:     make(map[string]*websocket.Conn),
+		service:     service,
+		userService: userService,
 	}
 }
 
@@ -42,7 +45,7 @@ func (m *Manager) GetHistory(w http.ResponseWriter, r *http.Request) {
 	roomID := r.URL.Query().Get("room_id")
 	if roomID == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Campo room_id ausente"})
+		json.NewEncoder(w).Encode(map[string]string{"message": "Missing room_id"})
 		return
 	}
 
@@ -103,7 +106,7 @@ func (m *Manager) CreateDM(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Campo user_id ausente"})
+		json.NewEncoder(w).Encode(map[string]string{"message": "Missing user_id field"})
 		return
 	}
 
@@ -131,7 +134,7 @@ func (m *Manager) ListUserDMs(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Campo user_id ausente"})
+		json.NewEncoder(w).Encode(map[string]string{"message": "Missing user_id field"})
 		return
 	}
 
@@ -149,27 +152,38 @@ func (m *Manager) ListUserDMs(w http.ResponseWriter, r *http.Request) {
 func (m *Manager) ManageConnection(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
-		http.Error(w, "Campo user_id ausente", http.StatusBadRequest)
+		http.Error(w, "Missing user_id field", http.StatusBadRequest)
+		return
+	}
+
+	// Reject the connection if the user does not exist in the database.
+	exists, err := m.userService.ExistsByID(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "Internal error validating the user", http.StatusInternalServerError)
+		return
+	}
+	if !exists {
+		http.Error(w, "invalid user_id: user does not exist", http.StatusUnauthorized)
 		return
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("Falha no upgrade de conexão: %v", err)
+		log.Printf("WebSocket upgrade failed: %v", err)
 		return
 	}
 
 	m.mu.Lock()
 	m.clients[userID] = conn
 	m.mu.Unlock()
-	log.Printf("-> Usuário [%s] entrou no chat via WebSocket!", userID)
+	log.Printf("-> User [%s] joined the chat via WebSocket!", userID)
 
 	defer func() {
 		m.mu.Lock()
 		delete(m.clients, userID)
 		m.mu.Unlock()
 		conn.Close()
-		log.Printf("<- Usuário [%s] saiu do chat.", userID)
+		log.Printf("<- User [%s] left the chat.", userID)
 	}()
 
 	for {
@@ -180,7 +194,7 @@ func (m *Manager) ManageConnection(w http.ResponseWriter, r *http.Request) {
 
 		incoming, errors := httputil.UnmarshalValidate[models.IncomingMessage](payload)
 		if errors != nil {
-			log.Printf("Payload do WebSocket rejeitado: %v", errors)
+			log.Printf("WebSocket payload rejected: %v", errors)
 
 			errResponse, _ := json.Marshal(map[string][]string{
 				"message": errors,
@@ -219,7 +233,7 @@ func (m *Manager) ManageConnection(w http.ResponseWriter, r *http.Request) {
 			for clientID, clientConn := range m.clients {
 				if clientID != userID {
 					if err := clientConn.WriteMessage(websocket.TextMessage, jsonBytes); err != nil {
-						log.Printf("Erro ao enviar mensagem para %s: %v", clientID, err)
+						log.Printf("Error sending message to %s: %v", clientID, err)
 					}
 				}
 			}

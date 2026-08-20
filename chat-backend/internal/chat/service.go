@@ -48,10 +48,10 @@ func (s *chatService) ProcessAndStoreMessage(ctx context.Context, userID string,
 	cleanContent := strings.TrimSpace(incoming.Content)
 
 	msg := &models.MessageBroadcast{
-		RoomID:   incoming.RoomID,
-		Author:   userID,
-		Content:  cleanContent,
-		SendedAt: time.Now(),
+		RoomID:  incoming.RoomID,
+		Author:  userID,
+		Content: cleanContent,
+		SentAt:  time.Now(),
 	}
 
 	if err := s.repo.SaveMessage(ctx, msg); err != nil {

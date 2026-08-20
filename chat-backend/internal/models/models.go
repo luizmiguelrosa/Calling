@@ -12,10 +12,10 @@ const (
 )
 
 type MessageBroadcast struct {
-	RoomID   string    `json:"room_id"`
-	Author   string    `json:"author"`
-	Content  string    `json:"content"`
-	SendedAt time.Time `json:"sendedAt"`
+	RoomID  string    `json:"room_id"`
+	Author  string    `json:"author"`
+	Content string    `json:"content"`
+	SentAt  time.Time `json:"sentAt"`
 }
 
 type IncomingMessage struct {

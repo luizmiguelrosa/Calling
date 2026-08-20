@@ -3,6 +3,8 @@ package main
 import (
 	"chat-backend/internal/chat"
 	"chat-backend/internal/container"
+	"chat-backend/internal/user"
+	"context"
 	"log"
 	"net/http"
 
@@ -24,11 +26,18 @@ func main() {
 		AllowedHeaders: []string{"Accept", "Content-Type"},
 	}))
 
-	depsContainer := container.BuildContainer()
+	ctx := context.Background()
+	depsContainer := container.BuildContainer(ctx)
 
-	err := depsContainer.Invoke(func(managerChat *chat.Manager) {
-		r.Get("/historico", managerChat.GetHistory)
-		r.Get("/onlineUsers", managerChat.GetOnlineUsers)
+	err := depsContainer.Invoke(func(managerChat *chat.Manager, userHandler *user.Handler) {
+		// User routes
+		r.Post("/users", userHandler.Register)
+		r.Post("/users/login", userHandler.Login)
+		r.Get("/users", userHandler.GetUser)
+
+		// Chat routes
+		r.Get("/history", managerChat.GetHistory)
+		r.Get("/users/online", managerChat.GetOnlineUsers)
 		r.Get("/chat", managerChat.ManageConnection)
 		r.Post("/rooms", managerChat.CreateRoom)
 		r.Get("/rooms", managerChat.ListRooms)
