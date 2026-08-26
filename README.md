@@ -44,7 +44,7 @@ graph LR
 
 ### Tech stack
 
-- **Backend**: Go, [chi](https://github.com/go-chi/chi) router, [gorilla/websocket](https://github.com/gorilla/websocket), [go-playground/validator](https://github.com/go-playground/validator), [go.uber.org/dig](https://github.com/uber-go/dig) (dependency injection), go-chi/cors.
+- **Backend**: Go, [chi](https://github.com/go-chi/chi) router, [gorilla/websocket](https://github.com/gorilla/websocket), [go-playground/validator](https://github.com/go-playground/validator), [go.uber.org/dig](https://github.com/uber-go/dig) (dependency injection), go-chi/cors, [golang-jwt/jwt/v5](https://github.com/golang-jwt/jwt) (JWT).
 - **Database**: PostgreSQL, [pgx](https://github.com/jackc/pgx) driver + connection pool, [sqlc](https://sqlc.dev/) for type-safe generated queries.
 - **Infra**: Docker Compose for the Postgres container.
 - **Frontend (planned)**: Tauri (Rust + system webview).
@@ -53,7 +53,8 @@ graph LR
 
 ## Features
 
-- **Users** — register, login (credential validation), and lookup. Passwords are hashed with **bcrypt**. Roles: `Developer`, `Admin`.
+- **Users** — register, login (credential validation + JWT issuance), and lookup. Passwords are hashed with **bcrypt**. Roles: `Developer`, `Admin`.
+- **JWT authentication** — login issues an HS256 token valid for 1 hour; signing secret configurable via `JWT_SECRET` env var. All routes except register and login are protected by JWT middleware.
 - **Public channels** — create and list public chat rooms.
 - **Direct Messages (DMs)** — 1:1 private rooms between two users.
   - Room name is normalized as `{smaller_id}-{larger_id}` to guarantee a single canonical room per user pair.
@@ -62,7 +63,7 @@ graph LR
 - **Message history** per room.
 - **Online users** list (current WebSocket connections).
 - **WebSocket real-time messaging** with broadcast (public) and targeted (DM) delivery.
-- **User validation on connect** — the `/chat` WebSocket endpoint rejects connections with an unknown `user_id`.
+- **User validation on connect** — the `/chat` WebSocket endpoint rejects connections if the JWT user does not exist in the database.
 
 ---
 
@@ -73,15 +74,17 @@ graph LR
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
 | `POST` | `/users` | Register a new user | — |
-| `POST` | `/users/login` | Validate credentials (JWT planned) | — |
-| `GET` | `/users` | Get a user by id (`?user_id=`) | — |
-| `GET` | `/history` | Get message history of a room (`?room_id=`) | — |
-| `GET` | `/users/online` | List currently connected users | — |
-| `POST` | `/rooms` | Create a public channel | — |
-| `GET` | `/rooms` | List **public** channels only (DMs excluded) | — |
-| `POST` | `/rooms/dm` | Create a DM room | `user_id` query |
-| `GET` | `/rooms/dm` | List DM rooms of the current user | `user_id` query |
-| `GET` | `/chat` | Upgrade to WebSocket connection | `user_id` query |
+| `POST` | `/users/login` | Validate credentials and issue a JWT | — |
+| `GET` | `/users` | Get a user by id (`?user_id=`) | JWT |
+| `GET` | `/history` | Get message history of a room (`?room_id=`) | JWT |
+| `GET` | `/users/online` | List currently connected users | JWT |
+| `POST` | `/rooms` | Create a public channel | JWT |
+| `GET` | `/rooms` | List **public** channels only (DMs excluded) | JWT |
+| `POST` | `/rooms/dm` | Create a DM room | JWT |
+| `GET` | `/rooms/dm` | List DM rooms of the current user | JWT |
+| `GET` | `/chat` | Upgrade to WebSocket connection | JWT |
+
+All endpoints except `/users` (register) and `/users/login` require a valid JWT in the `Authorization: Bearer <token>` header.
 
 ### Request / Response examples
 
@@ -114,17 +117,21 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "1755000000000000000",
-  "username": "alice",
-  "name": "Alice",
-  "role": "Developer"
+  "token": "<jwt-token>",
+  "user": {
+    "id": "1755000000000000000",
+    "username": "alice",
+    "name": "Alice",
+    "role": "Developer"
+  }
 }
 ```
 
 **Create a DM room**
 
 ```http
-POST /rooms/dm?user_id=1001
+POST /rooms/dm
+Authorization: Bearer <jwt-token>
 Content-Type: application/json
 
 { "receiver_id": "2002" }
@@ -141,7 +148,8 @@ Content-Type: application/json
 **List DM rooms of current user**
 
 ```http
-GET /rooms/dm?user_id=1001
+GET /rooms/dm
+Authorization: Bearer <jwt-token>
 ```
 
 ```json
@@ -154,6 +162,7 @@ GET /rooms/dm?user_id=1001
 
 ```http
 GET /rooms
+Authorization: Bearer <jwt-token>
 ```
 
 ```json
@@ -164,13 +173,14 @@ GET /rooms
 
 ### WebSocket
 
-Connect with the user identity in the query string:
+Connect with a valid JWT in the `Authorization` header:
 
 ```
-ws://localhost:8080/chat?user_id=1001
+ws://localhost:8080/chat
+Authorization: Bearer <jwt-token>
 ```
 
-The connection is **rejected with `401 invalid user_id: user does not exist`** if the user is not present in the database.
+The connection is **rejected with `401`** if the token is missing, invalid, expired, or the user does not exist in the database.
 
 **Send a message** (JSON frame):
 
@@ -210,7 +220,13 @@ The connection is **rejected with `401 invalid user_id: user does not exist`** i
    DATABASE_URL=postgres://postgres:postgres@localhost:5432/calling_chat?sslmode=disable
    ```
 
-3. Run the server:
+3. (Optional) Set a JWT signing secret. If `JWT_SECRET` is not set, a development default is used:
+
+   ```
+   JWT_SECRET=your-secure-secret-here
+   ```
+
+4. Run the server:
 
    ```bash
    go run ./cmd/server
@@ -234,11 +250,12 @@ Generated code lands in `internal/database/sqlc` (do not edit by hand).
 ```
 Calling/
 └── chat-backend/
-    ├── cmd/server/          # Entry point (router, CORS, DI wiring)
+    ├── cmd/server/          # Entry point (router, CORS, JWT middleware, DI wiring)
     ├── db/                  # schema.sql + queries.sql (sqlc source)
     ├── docker-compose.yml   # Postgres container
     ├── sqlc.yaml            # sqlc configuration
     └── internal/
+        ├── auth/            # JWT Claims struct, token generation, and middleware
         ├── chat/            # Manager (WebSocket), Service, Repository
         ├── container/       # Dependency injection container (dig)
         ├── database/        # pgx connection pool + generated sqlc code
@@ -252,11 +269,13 @@ Calling/
 - **Manager** (`internal/chat/handler.go`) — HTTP handlers + WebSocket connection lifecycle.
 - **Service** (`internal/chat/service.go`) — business rules (validation, DM permission checks, room naming).
 - **Repository** (`internal/chat/repository.go`) — data access backed by PostgreSQL via sqlc/pgx.
-- **User module** (`internal/user/`) — registration, credential validation, and user lookup; used by the chat layer to validate `user_id` on WebSocket connect.
+- **User module** (`internal/user/`) — registration, credential validation, and user lookup; used by the chat layer to validate the JWT user on WebSocket connect.
+- **Auth module** (`internal/auth/`) — JWT `Claims` struct, `GenerateToken` function, and `Middleware` for request authentication.
 
 ---
 
 ## Roadmap
 
-- [ ] Issue JWTs on login and replace the `user_id` query-parameter flow with token-based auth.
+- [x] Issue JWTs on login (HS256, 1-hour expiry).
+- [x] Replace the `user_id` query-parameter flow with token-based auth (JWT middleware on all routes except register/login).
 - [ ] Tauri frontend client.

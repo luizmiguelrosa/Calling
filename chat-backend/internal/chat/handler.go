@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"chat-backend/internal/auth"
 	"chat-backend/internal/httputil"
 	"chat-backend/internal/models"
 	"chat-backend/internal/user"
@@ -103,10 +104,10 @@ func (m *Manager) ListRooms(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) CreateDM(w http.ResponseWriter, r *http.Request) {
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Missing user_id field"})
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"message": "unauthorized: missing user identity"})
 		return
 	}
 
@@ -131,10 +132,10 @@ func (m *Manager) CreateDM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) ListUserDMs(w http.ResponseWriter, r *http.Request) {
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Missing user_id field"})
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"message": "unauthorized: missing user identity"})
 		return
 	}
 
@@ -150,9 +151,9 @@ func (m *Manager) ListUserDMs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) ManageConnection(w http.ResponseWriter, r *http.Request) {
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
-		http.Error(w, "Missing user_id field", http.StatusBadRequest)
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized: missing or invalid token", http.StatusUnauthorized)
 		return
 	}
 

@@ -1,6 +1,7 @@
 package user
 
 import (
+	"chat-backend/internal/auth"
 	"chat-backend/internal/httputil"
 	"encoding/json"
 	"net/http"
@@ -8,11 +9,12 @@ import (
 )
 
 type Handler struct {
-	service Service
+	service    Service
+	authSecret []byte
 }
 
-func NewHandler(service Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service Service, authSecret []byte) *Handler {
+	return &Handler{service: service, authSecret: authSecret}
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
@@ -36,8 +38,21 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(created)
 }
 
+type LoginRequest struct {
+	Username string `json:"username" validate:"required,min=3,max=32"`
+	Password string `json:"password" validate:"required,min=8,max=72"`
+}
+
+func (l LoginRequest) Validate() error {
+	return validate.Struct(l)
+}
+
+type LoginResponse struct {
+	Token string `json:"token"`
+}
+
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
-	input, valid := httputil.ReadAndValidate[LoginInput](w, r)
+	input, valid := httputil.ReadAndValidate[LoginRequest](w, r)
 	if !valid {
 		return
 	}
@@ -55,14 +70,16 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// JWT will be issued here in the future. For now we return the user data
-	// so the client can keep using the user_id based flow.
+	token, err := auth.GenerateToken(h.authSecret, u.ID, u.Username)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"message": "failed to generate token"})
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(UserResponse{
-		ID:       u.ID,
-		Username: u.Username,
-		Name:     u.Name,
-		Role:     u.Role,
+	json.NewEncoder(w).Encode(LoginResponse{
+		Token: token,
 	})
 }
 

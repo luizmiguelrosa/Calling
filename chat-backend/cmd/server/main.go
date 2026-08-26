@@ -23,26 +23,29 @@ func main() {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{"*"}, // No futuro, você coloca o endereço do Tauri aqui
 		AllowedMethods: []string{"GET", "POST", "OPTIONS"},
-		AllowedHeaders: []string{"Accept", "Content-Type"},
+		AllowedHeaders: []string{"Accept", "Content-Type", "Authorization"},
 	}))
 
 	ctx := context.Background()
 	depsContainer := container.BuildContainer(ctx)
 
-	err := depsContainer.Invoke(func(managerChat *chat.Manager, userHandler *user.Handler) {
-		// User routes
+	err := depsContainer.Invoke(func(managerChat *chat.Manager, userHandler *user.Handler, authMiddleware func(http.Handler) http.Handler) {
+		// Public routes
 		r.Post("/users", userHandler.Register)
 		r.Post("/users/login", userHandler.Login)
-		r.Get("/users", userHandler.GetUser)
 
-		// Chat routes
-		r.Get("/history", managerChat.GetHistory)
-		r.Get("/users/online", managerChat.GetOnlineUsers)
-		r.Get("/chat", managerChat.ManageConnection)
-		r.Post("/rooms", managerChat.CreateRoom)
-		r.Get("/rooms", managerChat.ListRooms)
-		r.Post("/rooms/dm", managerChat.CreateDM)
-		r.Get("/rooms/dm", managerChat.ListUserDMs)
+		// Protected routes (require valid JWT)
+		r.Group(func(r chi.Router) {
+			r.Use(authMiddleware)
+			r.Get("/users", userHandler.GetUser)
+			r.Get("/history", managerChat.GetHistory)
+			r.Get("/users/online", managerChat.GetOnlineUsers)
+			r.Post("/rooms", managerChat.CreateRoom)
+			r.Get("/rooms", managerChat.ListRooms)
+			r.Post("/rooms/dm", managerChat.CreateDM)
+			r.Get("/rooms/dm", managerChat.ListUserDMs)
+			r.Get("/chat", managerChat.ManageConnection)
+		})
 	})
 
 	if err != nil {
