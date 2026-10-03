@@ -1,0 +1,23 @@
+/* `app-root` is a custom element, so it defaults to `display: inline` with an
+   auto height; both must be set for the routed `h-full` layout to have a
+   definite containing block.
+
+   This rule owns the root layout rather than a `host` class. Encapsulated
+   `:host` and a utility class end up with the same specificity once Angular
+   rewrites `:host` to the `_nghost-*` attribute selector, so a `flex` utility
+   in the component metadata loses on this on source order — and because the
+   routed outlet relies on `flex-1`, a non-flex parent silently collapses the app
+   to content height instead of failing visibly.
+
+   Sizing is viewport-based on purpose rather than `height: 100%`. The
+   percentage form depends on `html` and `body` both being sized, and when that
+   chain is broken the root resolves to 0 — which, with `overflow: hidden` below,
+   renders a completely blank window with the app still running underneath.
+   `100dvh` cannot collapse that way. The earlier `overflow: none` was an invalid
+   value and therefore inert, which had been masking exactly this. */
+:host {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}

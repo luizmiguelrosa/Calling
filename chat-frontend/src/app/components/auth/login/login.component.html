@@ -1,0 +1,70 @@
+<div class="h-full overflow-auto">
+    <div class="mx-auto flex min-h-full w-full max-w-sm flex-col justify-center gap-4 p-6">
+        @if (needsServerSetup()) {
+            <div role="status" class="flex items-start gap-2 rounded-lg border border-border bg-muted px-3 py-2 text-sm">
+                <ng-icon name="lucideServer" class="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <p class="flex-1 text-muted-foreground">
+                    @if (serverLocked()) {
+                        Usando o endereço definido pelo ambiente.
+                    } @else {
+                        Nenhum servidor configurado. O aplicativo está usando o endereço padrão.
+                        <a routerLink="/settings/server" class="text-foreground underline underline-offset-4 hover:no-underline">Configurar agora</a>.
+                    }
+                </p>
+            </div>
+        }
+
+        <z-card>
+            <div z-card-header class="flex justify-center">
+                <z-card-title zTitle="Entrar no Calling"/>
+            </div>
+            <div z-card-content>
+                <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
+                    <div z-field-group>
+                        <div z-field [attr.data-invalid]="usernameInvalid() || usernameTooShort() || null">
+                            <label z-field-label for="username">Usuário</label>
+                            <input z-input id="username" formControlName="username" type="text" required
+                                   [attr.aria-invalid]="usernameInvalid() || usernameTooShort() || null"/>
+                            @if (usernameInvalid()) {
+                                <z-field-error>Informe o usuário.</z-field-error>
+                            } @else if (usernameTooShort()) {
+                                <z-field-error>O usuário precisa ter ao menos 3 caracteres.</z-field-error>
+                            }
+                        </div>
+
+                        <div z-field [attr.data-invalid]="passwordInvalid() || passwordTooShort() || passwordTooLong() || null">
+                            <label z-field-label for="password">Senha</label>
+                            <input z-input id="password" formControlName="password" type="password" required
+                                   [attr.aria-invalid]="passwordInvalid() || passwordTooShort() || passwordTooLong() || null"/>
+                            @if (passwordInvalid()) {
+                                <z-field-error>Informe a senha.</z-field-error>
+                            } @else if (passwordTooShort()) {
+                                <z-field-error>A senha precisa ter ao menos 8 caracteres.</z-field-error>
+                            } @else if (passwordTooLong()) {
+                                <z-field-error>A senha não pode passar de 72 caracteres.</z-field-error>
+                            }
+                        </div>
+
+                        @if (error(); as message) {
+                            <p role="alert" class="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                                {{ message }}
+                            </p>
+                        }
+
+                        <div z-field>
+                            <button z-button type="submit" class="w-full" [zLoading]="isLoading()" [zDisabled]="isLoading()">{{isLoading() ? "Entrando" : "Entrar"}}</button>
+                        </div>
+                    </div>
+                </form>
+                <div class="mt-4 flex items-center justify-center gap-3 text-sm">
+                    <a routerLink="/register" class="text-blue-600 hover:underline">Ainda não tem uma conta? Registrar</a>
+                    <span class="text-muted-foreground">·</span>
+                    <a routerLink="/settings/server" class="flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline">
+                        <ng-icon name="lucideServer" class="size-3.5" />
+                        Servidor
+                    </a>
+                </div>
+            </div>
+        </z-card>
+    </div>
+</div>
