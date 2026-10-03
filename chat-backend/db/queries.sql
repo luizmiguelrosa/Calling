@@ -12,6 +12,11 @@ SELECT id, username, password, name, role, created_at
 FROM users
 WHERE username = $1;
 
+-- name: ListUsers :many
+SELECT id, username, name, role
+FROM users
+ORDER BY username;
+
 -- name: UserExistsByID :one
 SELECT EXISTS(SELECT 1 FROM users WHERE id = $1);
 
@@ -41,10 +46,15 @@ WHERE is_dm = false
 ORDER BY created_at;
 
 -- name: ListUserDMs :many
-SELECT r.id, r.name, r.is_dm
+SELECT r.id, r.name, r.is_dm,
+       u.id AS other_user_id,
+       u.username AS other_username,
+       u.name AS other_name
 FROM rooms r
-JOIN room_participants rp ON rp.room_id = r.id
-WHERE r.is_dm = true AND rp.user_id = $1
+JOIN room_participants rp ON rp.room_id = r.id AND rp.user_id = $1
+JOIN room_participants op ON op.room_id = r.id AND op.user_id <> $1
+JOIN users u ON u.id = op.user_id
+WHERE r.is_dm = true
 ORDER BY r.created_at;
 
 -- name: IsRoomParticipant :one

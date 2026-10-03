@@ -27,8 +27,11 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
+// Manager tracks live connections. A user may hold several at once (two windows,
+// two devices), so connections are keyed per user and the outer map only ever
+// holds users with at least one open socket.
 type Manager struct {
-	clients     map[string]*websocket.Conn
+	clients     map[string]map[*websocket.Conn]struct{}
 	service     Service
 	userService user.Service
 	mu          sync.RWMutex
@@ -36,7 +39,7 @@ type Manager struct {
 
 func NewManager(service Service, userService user.Service) *Manager {
 	return &Manager{
-		clients:     make(map[string]*websocket.Conn),
+		clients:     make(map[string]map[*websocket.Conn]struct{}),
 		service:     service,
 		userService: userService,
 	}
@@ -175,13 +178,23 @@ func (m *Manager) ManageConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.mu.Lock()
-	m.clients[userID] = conn
+	if m.clients[userID] == nil {
+		m.clients[userID] = make(map[*websocket.Conn]struct{})
+	}
+	m.clients[userID][conn] = struct{}{}
 	m.mu.Unlock()
 	log.Printf("-> User [%s] joined the chat via WebSocket!", userID)
 
 	defer func() {
+		// Only drop this connection. Removing the user outright would mark them
+		// offline while their other windows are still connected.
 		m.mu.Lock()
-		delete(m.clients, userID)
+		if conns, ok := m.clients[userID]; ok {
+			delete(conns, conn)
+			if len(conns) == 0 {
+				delete(m.clients, userID)
+			}
+		}
 		m.mu.Unlock()
 		conn.Close()
 		log.Printf("<- User [%s] left the chat.", userID)
@@ -207,9 +220,9 @@ func (m *Manager) ManageConnection(w http.ResponseWriter, r *http.Request) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		msg, isDM, err := m.service.ProcessAndStoreMessage(ctx, userID, incoming)
-		cancel()
 
 		if err != nil {
+			cancel()
 			errorResponse, _ := json.Marshal(map[string]string{"message": err.Error()})
 			conn.WriteMessage(websocket.TextMessage, errorResponse)
 			continue
@@ -225,14 +238,19 @@ func (m *Manager) ManageConnection(w http.ResponseWriter, r *http.Request) {
 					if participantID == userID {
 						continue
 					}
-					if dc, online := m.clients[participantID]; online {
+					for dc := range m.clients[participantID] {
 						dc.WriteMessage(websocket.TextMessage, jsonBytes)
 					}
 				}
+			} else {
+				log.Printf("Error resolving DM participants for %s: %v", incoming.RoomID, err)
 			}
 		} else {
-			for clientID, clientConn := range m.clients {
-				if clientID != userID {
+			for clientID, conns := range m.clients {
+				if clientID == userID {
+					continue
+				}
+				for clientConn := range conns {
 					if err := clientConn.WriteMessage(websocket.TextMessage, jsonBytes); err != nil {
 						log.Printf("Error sending message to %s: %v", clientID, err)
 					}
@@ -240,5 +258,10 @@ func (m *Manager) ManageConnection(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		m.mu.RUnlock()
+
+		// Cancelled only now: the DM branch still needs ctx to resolve the
+		// participants, and cancelling early made every DM lookup fail on a
+		// dead context, so nothing was ever delivered.
+		cancel()
 	}
 }

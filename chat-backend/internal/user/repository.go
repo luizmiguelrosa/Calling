@@ -18,6 +18,7 @@ type Repository interface {
 	Create(ctx context.Context, u *User) error
 	GetByID(ctx context.Context, id string) (*User, error)
 	GetByUsername(ctx context.Context, username string) (*User, error)
+	List(ctx context.Context) ([]*User, error)
 	ExistsByID(ctx context.Context, id string) (bool, error)
 	ExistsByUsername(ctx context.Context, username string) (bool, error)
 }
@@ -62,6 +63,26 @@ func (r *postgresRepository) GetByUsername(ctx context.Context, username string)
 		return nil, err
 	}
 	return toUser(row), nil
+}
+
+func (r *postgresRepository) List(ctx context.Context) ([]*User, error) {
+	rows, err := r.q.ListUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// The directory query deliberately omits `password`, so it maps to its own
+	// row type instead of the full `sqlc.User`.
+	users := make([]*User, 0, len(rows))
+	for _, row := range rows {
+		users = append(users, &User{
+			ID:       row.ID,
+			Username: row.Username,
+			Name:     row.Name,
+			Role:     Role(row.Role),
+		})
+	}
+	return users, nil
 }
 
 func (r *postgresRepository) ExistsByID(ctx context.Context, id string) (bool, error) {

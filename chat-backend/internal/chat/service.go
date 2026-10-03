@@ -15,7 +15,7 @@ type Service interface {
 	CreateChannel(ctx context.Context, input models.CreateRoomInput) (models.RoomResponse, error)
 	GetAvailableChannels(ctx context.Context) ([]models.RoomResponse, error)
 	CreateDM(ctx context.Context, userID string, input models.CreateDMInput) (models.RoomResponse, error)
-	GetUserDMs(ctx context.Context, userID string) ([]models.RoomResponse, error)
+	GetUserDMs(ctx context.Context, userID string) ([]models.DMRoomResponse, error)
 	GetDMParticipants(ctx context.Context, roomID string) ([]string, error)
 }
 
@@ -130,7 +130,7 @@ func (s *chatService) CreateDM(ctx context.Context, userID string, input models.
 	}, nil
 }
 
-func (s *chatService) GetUserDMs(ctx context.Context, userID string) ([]models.RoomResponse, error) {
+func (s *chatService) GetUserDMs(ctx context.Context, userID string) ([]models.DMRoomResponse, error) {
 	return s.repo.ListUserDMs(ctx, userID)
 }
 

@@ -17,7 +17,7 @@ type Repository interface {
 	RoomExistsByName(ctx context.Context, roomName string) (bool, error)
 	CreateChannel(ctx context.Context, roomID string, roomName string, isDM bool, participants ...string) error
 	ListRooms(ctx context.Context) ([]models.RoomResponse, error)
-	ListUserDMs(ctx context.Context, userID string) ([]models.RoomResponse, error)
+	ListUserDMs(ctx context.Context, userID string) ([]models.DMRoomResponse, error)
 	IsRoomParticipant(ctx context.Context, roomID string, userID string) (bool, error)
 	GetDMParticipants(ctx context.Context, roomID string) ([]string, error)
 }
@@ -112,18 +112,23 @@ func (r *postgresRepository) ListRooms(ctx context.Context) ([]models.RoomRespon
 	return rooms, nil
 }
 
-func (r *postgresRepository) ListUserDMs(ctx context.Context, userID string) ([]models.RoomResponse, error) {
+func (r *postgresRepository) ListUserDMs(ctx context.Context, userID string) ([]models.DMRoomResponse, error) {
 	rows, err := r.q.ListUserDMs(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	rooms := make([]models.RoomResponse, 0, len(rows))
+	rooms := make([]models.DMRoomResponse, 0, len(rows))
 	for _, row := range rows {
-		rooms = append(rooms, models.RoomResponse{
-			ID:   row.ID,
-			Name: row.Name,
-			IsDM: row.IsDm,
+		rooms = append(rooms, models.DMRoomResponse{
+			RoomResponse: models.RoomResponse{
+				ID:   row.ID,
+				Name: row.Name,
+				IsDM: row.IsDm,
+			},
+			OtherUserID:   row.OtherUserID,
+			OtherUsername: row.OtherUsername,
+			OtherName:     row.OtherName,
 		})
 	}
 	return rooms, nil

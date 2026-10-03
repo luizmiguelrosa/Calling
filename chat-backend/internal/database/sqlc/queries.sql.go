@@ -243,17 +243,25 @@ func (q *Queries) ListRooms(ctx context.Context) ([]ListRoomsRow, error) {
 }
 
 const listUserDMs = `-- name: ListUserDMs :many
-SELECT r.id, r.name, r.is_dm
+SELECT r.id, r.name, r.is_dm,
+       u.id AS other_user_id,
+       u.username AS other_username,
+       u.name AS other_name
 FROM rooms r
-JOIN room_participants rp ON rp.room_id = r.id
-WHERE r.is_dm = true AND rp.user_id = $1
+JOIN room_participants rp ON rp.room_id = r.id AND rp.user_id = $1
+JOIN room_participants op ON op.room_id = r.id AND op.user_id <> $1
+JOIN users u ON u.id = op.user_id
+WHERE r.is_dm = true
 ORDER BY r.created_at
 `
 
 type ListUserDMsRow struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	IsDm bool   `json:"is_dm"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	IsDm          bool   `json:"is_dm"`
+	OtherUserID   string `json:"other_user_id"`
+	OtherUsername string `json:"other_username"`
+	OtherName     string `json:"other_name"`
 }
 
 func (q *Queries) ListUserDMs(ctx context.Context, userID string) ([]ListUserDMsRow, error) {
@@ -265,7 +273,52 @@ func (q *Queries) ListUserDMs(ctx context.Context, userID string) ([]ListUserDMs
 	items := []ListUserDMsRow{}
 	for rows.Next() {
 		var i ListUserDMsRow
-		if err := rows.Scan(&i.ID, &i.Name, &i.IsDm); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.IsDm,
+			&i.OtherUserID,
+			&i.OtherUsername,
+			&i.OtherName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsers = `-- name: ListUsers :many
+SELECT id, username, name, role
+FROM users
+ORDER BY username
+`
+
+type ListUsersRow struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	Role     string `json:"role"`
+}
+
+func (q *Queries) ListUsers(ctx context.Context) ([]ListUsersRow, error) {
+	rows, err := q.db.Query(ctx, listUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUsersRow{}
+	for rows.Next() {
+		var i ListUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Name,
+			&i.Role,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

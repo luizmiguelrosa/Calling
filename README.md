@@ -47,7 +47,7 @@ graph LR
 - **Backend**: Go, [chi](https://github.com/go-chi/chi) router, [gorilla/websocket](https://github.com/gorilla/websocket), [go-playground/validator](https://github.com/go-playground/validator), [go.uber.org/dig](https://github.com/uber-go/dig) (dependency injection), go-chi/cors, [golang-jwt/jwt/v5](https://github.com/golang-jwt/jwt) (JWT).
 - **Database**: PostgreSQL, [pgx](https://github.com/jackc/pgx) driver + connection pool, [sqlc](https://sqlc.dev/) for type-safe generated queries.
 - **Infra**: Docker Compose for the Postgres container.
-- **Frontend (planned)**: Tauri (Rust + system webview).
+- **Frontend**: [Tauri](https://tauri.app/) (Rust shell + system webview) with [Angular](https://angular.dev/) 22 and [zard/ui](https://zardui.com/) components installed as source.
 
 ---
 
@@ -62,6 +62,8 @@ graph LR
   - DMs are isolated: a DM message is routed **only** to the other participant, never broadcast.
 - **Message history** per room.
 - **Online users** list (current WebSocket connections).
+- **Settings modal** — categories on the left, the selected category's settings on the right, with a search box that filters the tree. **Aparência** holds the dark-mode switch.
+- **Dark mode** — follows the OS preference until an explicit choice is made, then persists it.
 - **WebSocket real-time messaging** with broadcast (public) and targeted (DM) delivery.
 - **User validation on connect** — the `/chat` WebSocket endpoint rejects connections if the JWT user does not exist in the database.
 
@@ -203,7 +205,7 @@ The connection is **rejected with `401`** if the token is missing, invalid, expi
 - [Go](https://go.dev/dl/) 1.26+
 - [Docker](https://www.docker.com/) (for the Postgres container)
 - [sqlc](https://sqlc.dev/) (to regenerate database code after schema/query changes)
-- (Frontend, planned) [Rust](https://rustup.rs/) + [Tauri prerequisites](https://tauri.app/v1/guides/getting-started/prerequisites/)
+- [Node.js](https://nodejs.org/) 20+ and [Rust](https://rustup.rs/) + [Tauri prerequisites](https://tauri.app/start/prerequisites/) (for the desktop client)
 
 ### Running the backend
 
@@ -245,23 +247,62 @@ sqlc generate
 
 Generated code lands in `internal/database/sqlc` (do not edit by hand).
 
+### Running the desktop client
+
+```bash
+cd chat-frontend
+npm install
+
+# Run the desktop app
+npm run tauri dev
+```
+
+The address of the backend is resolved once at startup, in this order:
+
+1. **`CALLING_API_URL`** in the process environment — set it before launching to pin a build to a fixed server:
+
+   ```bash
+   CALLING_API_URL=http://192.168.0.10:8080 npm run tauri dev
+   ```
+
+   When this variable is set, the address is read-only in the app: the login and register screens show it but will not let it be changed.
+
+2. **The address saved in the client**, typed on the **Servidor** page — reachable from the login and register screens — and persisted in `localStorage`.
+
+3. `http://localhost:8080`, the compiled-in default.
+
+A missing scheme is filled in as `http://`, so `192.168.0.10:8080` works.
+
+The login, register and server-address windows are pinned to 480×720: they cannot be resized or maximized, and the app restores that size when you navigate back to them from the chat. The chat window takes the whole display. The app draws its own title bar, because the native one is disabled.
+
+To develop the UI in a browser instead of the desktop shell — useful for quick iteration — run `npm start`. The custom title bar is hidden in that mode, since there is no window to control.
+
+> **Note for `npm run tauri dev`:** the dev server is pinned to `127.0.0.1` in `angular.json`. That is required — by default it binds IPv6 (`[::1]`) only, the Tauri webview resolves `localhost` to IPv4, and the window comes up blank. The packaged build is unaffected because it loads from disk rather than a socket.
+
 ### Project structure
 
 ```
 Calling/
-└── chat-backend/
-    ├── cmd/server/          # Entry point (router, CORS, JWT middleware, DI wiring)
-    ├── db/                  # schema.sql + queries.sql (sqlc source)
-    ├── docker-compose.yml   # Postgres container
-    ├── sqlc.yaml            # sqlc configuration
-    └── internal/
-        ├── auth/            # JWT Claims struct, token generation, and middleware
-        ├── chat/            # Manager (WebSocket), Service, Repository
-        ├── container/       # Dependency injection container (dig)
-        ├── database/        # pgx connection pool + generated sqlc code
-        ├── httputil/        # Validation / JSON helpers
-        ├── models/          # DTOs and domain models
-        └── user/            # User registration, login, lookup
+├── chat-backend/
+│   ├── cmd/server/          # Entry point (router, CORS, JWT middleware, DI wiring)
+│   ├── db/                  # schema.sql + queries.sql (sqlc source)
+│   ├── docker-compose.yml   # Postgres container
+│   ├── sqlc.yaml            # sqlc configuration
+│   └── internal/
+│       ├── auth/            # JWT Claims struct, token generation, and middleware
+│       ├── chat/            # Manager (WebSocket), Service, Repository
+│       ├── container/       # Dependency injection container (dig)
+│       ├── database/        # pgx connection pool + generated sqlc code
+│       ├── httputil/        # Validation / JSON helpers
+│       ├── models/          # DTOs and domain models
+│       └── user/            # User registration, credential validation, and lookup
+└── chat-frontend/
+    ├── src/app/
+    │   ├── components/      # auth (login, register), chat, layout, settings (modal, server address)
+    │   ├── guards/          # authGuard / guestGuard
+    │   ├── interceptors/    # 401 → clear session and redirect to login
+    │   └── services/        # API config, auth, rooms, conversations, users, theme, WebSocket, window
+    └── src-tauri/           # Rust shell, window config, capabilities
 ```
 
 ### Layers
@@ -278,4 +319,6 @@ Calling/
 
 - [x] Issue JWTs on login (HS256, 1-hour expiry).
 - [x] Replace the `user_id` query-parameter flow with token-based auth (JWT middleware on all routes except register/login).
-- [ ] Tauri frontend client.
+- [x] Tauri frontend client.
+- [x] Persist the session across restarts, with a 401 clearing it and returning to login.
+- [x] Allow the backend address to be configured per machine, with the process environment taking precedence.

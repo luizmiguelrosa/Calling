@@ -49,6 +49,10 @@ func (l LoginRequest) Validate() error {
 
 type LoginResponse struct {
 	Token string `json:"token"`
+	// The client keeps the signed-in identity to hide the current user from
+	// pickers; decoding the JWT for it would mean trusting a parse of a token
+	// the server already has the answers for.
+	User UserResponse `json:"user"`
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
@@ -80,14 +84,22 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(LoginResponse{
 		Token: token,
+		User: UserResponse{
+			ID:       u.ID,
+			Username: u.Username,
+			Name:     u.Name,
+			Role:     u.Role,
+		},
 	})
 }
 
+// GetUser serves both shapes of GET /users: with `user_id` it returns that one
+// user, without it the whole directory. chi cannot mount two handlers on a single
+// method+path, and the directory listing backs the conversation picker.
 func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Missing user_id field"})
+		h.listUsers(w, r)
 		return
 	}
 
@@ -109,4 +121,16 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 		Name:     u.Name,
 		Role:     u.Role,
 	})
+}
+
+func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := h.service.List(r.Context())
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"message": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(users)
 }

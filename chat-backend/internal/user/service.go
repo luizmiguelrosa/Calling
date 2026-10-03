@@ -14,6 +14,7 @@ type Service interface {
 	Register(ctx context.Context, input CreateUserInput) (UserResponse, error)
 	ValidateCredentials(ctx context.Context, username string, password string) (*User, error)
 	GetByID(ctx context.Context, id string) (*User, error)
+	List(ctx context.Context) ([]UserResponse, error)
 	ExistsByID(ctx context.Context, id string) (bool, error)
 }
 
@@ -76,6 +77,24 @@ func (s *userService) ValidateCredentials(ctx context.Context, username string, 
 
 func (s *userService) GetByID(ctx context.Context, id string) (*User, error) {
 	return s.repo.GetByID(ctx, id)
+}
+
+func (s *userService) List(ctx context.Context) ([]UserResponse, error) {
+	users, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	responses := make([]UserResponse, 0, len(users))
+	for _, u := range users {
+		responses = append(responses, UserResponse{
+			ID:       u.ID,
+			Username: u.Username,
+			Name:     u.Name,
+			Role:     u.Role,
+		})
+	}
+	return responses, nil
 }
 
 func (s *userService) ExistsByID(ctx context.Context, id string) (bool, error) {

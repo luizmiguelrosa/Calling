@@ -37,3 +37,13 @@ type RoomResponse struct {
 	Name string `json:"name"`
 	IsDM bool   `json:"is_dm"`
 }
+
+// DMRoomResponse is a RoomResponse plus the participant on the other side.
+// The canonical DM room name is just the two user IDs, so without this the
+// client cannot tell which conversation belongs to which person.
+type DMRoomResponse struct {
+	RoomResponse
+	OtherUserID   string `json:"other_user_id"`
+	OtherUsername string `json:"other_username"`
+	OtherName     string `json:"other_name"`
+}

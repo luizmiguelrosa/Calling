@@ -20,6 +20,7 @@ type Querier interface {
 	IsRoomParticipant(ctx context.Context, arg IsRoomParticipantParams) (bool, error)
 	ListRooms(ctx context.Context) ([]ListRoomsRow, error)
 	ListUserDMs(ctx context.Context, userID string) ([]ListUserDMsRow, error)
+	ListUsers(ctx context.Context) ([]ListUsersRow, error)
 	RoomExistsByName(ctx context.Context, name string) (bool, error)
 	SaveMessage(ctx context.Context, arg SaveMessageParams) error
 	UserExistsByID(ctx context.Context, id string) (bool, error)
