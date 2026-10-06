@@ -6,7 +6,7 @@
     "analytics": false
   },
   "projects": {
-    "chat-frontend": {
+    "calling": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:component": {
@@ -64,10 +64,10 @@
           },
           "configurations": {
             "production": {
-              "buildTarget": "chat-frontend:build:production"
+              "buildTarget": "calling:build:production"
             },
             "development": {
-              "buildTarget": "chat-frontend:build:development"
+              "buildTarget": "calling:build:development"
             }
           },
           "defaultConfiguration": "development"

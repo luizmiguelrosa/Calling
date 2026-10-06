@@ -33,6 +33,7 @@ Calling/
 ├── docs/
 │   └── PRIME-NG.md         # PrimeNG documentation
 ├── README.md                 # Product description, architecture, API, and setup notes
+├── RELEASE_NOTES_v1.0.0.md   # GitHub release notes for the v1.0.0 milestone
 ├── AGENTS.MD                 # This file
 ├── go.work                   # Go workspace; uses ./chat-backend
 ├── chat-backend/
@@ -310,6 +311,10 @@ Keep `AGENTS.MD` synchronized with the actual repository rather than treating it
 - Update known limitations, security notes, roadmap items, and technology versions when project status changes.
 - If a modification is documentation-only or does not make this file stale, still review this section and leave the file unchanged only when it remains accurate.
 - Do not remove this requirement when restructuring or rewriting the guide.
+
+## Large Modification Suggestion
+
+When making significant changes to the codebase (new features, architecture changes, or multiple file modifications), consider updating the release version using the `update-release-version` skill. This ensures consistency across `package.json`, `tauri.conf.json`, `Cargo.toml`, and the release notes file.
 
 ## Change checklist
 

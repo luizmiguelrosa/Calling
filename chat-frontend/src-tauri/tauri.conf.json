@@ -1,13 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "chat-frontend",
-  "version": "0.1.0",
-  "identifier": "com.masso.chat-frontend",
+  "productName": "Calling",
+  "version": "1.0.1",
+  "identifier": "com.luizmiguelrosa.calling",
   "build": {
     "beforeDevCommand": "npm run start",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist/chat-frontend/browser"
+    "frontendDist": "../dist/calling/browser"
   },
   "app": {
     "windows": [

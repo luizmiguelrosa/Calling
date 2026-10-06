@@ -256,6 +256,50 @@ export class ChatRoomComponent {
       },
     );
 
+    // Process incoming DM messages for rooms that don't exist locally yet.
+    // This ensures that when a user receives a DM from someone they haven't
+    // chatted with before, the conversation is created and displayed immediately.
+    effect(
+      () => {
+        const buffered = this.socket.incoming();
+        if (buffered.length === 0) {
+          return;
+        }
+
+        const currentRoomId = this.roomId();
+        for (const message of buffered) {
+          // Skip messages for the current room (handled above)
+          if (message.room_id === currentRoomId) {
+            continue;
+          }
+
+          // Check if this is a DM message (not a public room)
+          const isPublicRoom = this.rooms().some(room => room.id === message.room_id);
+          if (isPublicRoom) {
+            continue;
+          }
+
+          // Check if the DM conversation already exists locally
+          const existingDm = this.conversations.dms().find(dm => dm.id === message.room_id);
+          if (existingDm) {
+            continue;
+          }
+
+          // This is a new DM message for a room that doesn't exist locally.
+          // Get the author's user info and create the DM conversation.
+          const authorUser = this.userService.getUserById(message.author);
+          if (authorUser) {
+            this.conversations.openDirectMessage(authorUser).subscribe({
+              error: () => {
+                // If we can't create the DM, log an error but don't crash.
+                console.error('Failed to create DM conversation for incoming message');
+              },
+            });
+          }
+        }
+      },
+    );
+
     // History carries author IDs; the directory turns them into names.
     this.userService.loadOnce().subscribe({ error: () => undefined });
 

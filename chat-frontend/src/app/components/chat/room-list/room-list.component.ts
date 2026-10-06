@@ -29,7 +29,7 @@ import { RoomService } from '@/services/room.service';
     class: 'flex min-h-0 flex-1',
   },
   template: `
-    <div class="flex w-72 shrink-0 flex-col border-r">
+    <div class="flex w-60 shrink-0 flex-col border-r">
       <div class="flex h-14 shrink-0 items-center gap-2 px-4">
         <h1 class="text-xl font-semibold">Início</h1>
 

@@ -13,6 +13,11 @@ type WindowSize = { width: number; height: number };
  */
 const AUTH_SIZE = { width: 480, height: 720 } satisfies WindowSize;
 
+/**
+ * Minimum dimensions for the app view to ensure the chat interface remains usable.
+ */
+const MIN_APP_SIZE = { width: 800, height: 600 } satisfies WindowSize;
+
 type SizeMode = 'auth' | 'app';
 
 @Injectable({ providedIn: 'root' })
@@ -65,6 +70,9 @@ export class WindowService {
       this.maximized.set(maximized);
 
       if (!maximized) {
+        // Restore the minimum size so the window cannot be shrunk below the
+        // chat view's usable floor after coming back from maximized.
+        await appWindow.setMinSize(new LogicalSize(MIN_APP_SIZE.width, MIN_APP_SIZE.height));
         await appWindow.center();
       }
     });
@@ -83,6 +91,11 @@ export class WindowService {
     await appWindow.setMaxSize(null);
     await appWindow.setResizable(true);
     await appWindow.setMaximizable(true);
+
+    // Set a floor so the chat view never shrinks to a size where the message
+    // list and composer no longer share the window usefully.
+    await appWindow.setMinSize(new LogicalSize(MIN_APP_SIZE.width, MIN_APP_SIZE.height));
+
     await appWindow.maximize();
     this.maximized.set(true);
   }
@@ -102,6 +115,7 @@ export class WindowService {
       this.maximized.set(maximized);
 
       if (!maximized) {
+        await this.appWindow!.setMinSize(new LogicalSize(MIN_APP_SIZE.width, MIN_APP_SIZE.height));
         await this.appWindow!.center();
       }
     });

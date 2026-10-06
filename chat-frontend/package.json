@@ -1,6 +1,6 @@
 {
-  "name": "chat-frontend",
-  "version": "0.1.0",
+  "name": "calling",
+  "version": "1.0.1",
   "scripts": {
     "ng": "ng",
     "start": "ng serve",

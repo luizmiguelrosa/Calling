@@ -35,6 +35,10 @@ export class UserService {
     return user?.name || user?.username || userId;
   }
 
+  getUserById(userId: string): UserResponse | undefined {
+    return this.users().find(u => u.id === userId);
+  }
+
   /**
    * Presence is a snapshot of who happens to be connected right now, so it goes
    * stale on its own — refresh it when the view that shows it is opened.
