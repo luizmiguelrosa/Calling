@@ -73,6 +73,7 @@ export class WindowService {
         // Restore the minimum size so the window cannot be shrunk below the
         // chat view's usable floor after coming back from maximized.
         await appWindow.setMinSize(new LogicalSize(MIN_APP_SIZE.width, MIN_APP_SIZE.height));
+        await this.enforceMinFloor();
         await appWindow.center();
       }
     });
@@ -118,6 +119,41 @@ export class WindowService {
         await this.appWindow!.setMinSize(new LogicalSize(MIN_APP_SIZE.width, MIN_APP_SIZE.height));
         await this.appWindow!.center();
       }
+
+      this.watchRestore();
+    });
+  }
+
+  /**
+   * Restoring can also come from the OS — Win+Down on Windows — which never
+   * goes through `toggleMaximize`, so the min size would stay lifted and the
+   * window could be shrunk below the chat's usable floor. The resize event is
+   * the only signal that fires on that path; re-applying the constraints there
+   * keeps every restore route covered.
+   */
+  private watchRestore(): void {
+    void this.appWindow!.onResized(async () => {
+      const maximized = await this.appWindow!.isMaximized();
+
+      // Resize events also fire while dragging edges and while maximizing;
+      // acting only on a state change keeps those from re-running the setup.
+      if (maximized === this.maximized()) {
+        return;
+      }
+      this.maximized.set(maximized);
+
+      // In auth mode min and max are pinned to one size; touching the min here
+      // would unpin the window.
+      if (!maximized && this.current !== 'auth') {
+        await this.appWindow!.setMinSize(new LogicalSize(MIN_APP_SIZE.width, MIN_APP_SIZE.height));
+
+        // The OS restores to the geometry remembered before the maximize, which
+        // can be the auth size — under the app floor. `setMinSize` only holds
+        // future drags, so the applied size has to be corrected explicitly,
+        // same as the in-app restore path does.
+        await this.enforceMinFloor();
+        await this.appWindow!.center();
+      }
     });
   }
 
@@ -144,6 +180,32 @@ export class WindowService {
     await appWindow.center();
 
     this.maximized.set(false);
+  }
+
+  /**
+   * Grows the window back to the app floor when its current size sits under
+   * it. `setMinSize` only constrains future interactive resizes — it never
+   * corrects the geometry the OS just applied, which is what a restore from
+   * maximized does on Windows.
+   */
+  private async enforceMinFloor(): Promise<void> {
+    const appWindow = this.appWindow!;
+
+    // `innerSize` is physical, while the floor is logical; the scale factor
+    // converts between them.
+    const scale = await appWindow.scaleFactor();
+    const size = await appWindow.innerSize();
+    const width = size.width / scale;
+    const height = size.height / scale;
+
+    if (width < MIN_APP_SIZE.width || height < MIN_APP_SIZE.height) {
+      await appWindow.setSize(
+        new LogicalSize(
+          Math.max(width, MIN_APP_SIZE.width),
+          Math.max(height, MIN_APP_SIZE.height),
+        ),
+      );
+    }
   }
 
   /** Resolves on the window's next resize event, or after a short fallback. */

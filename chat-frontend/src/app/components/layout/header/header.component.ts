@@ -41,6 +41,26 @@ import { WebSocketService } from '@/services/websocket.service';
 
       <p class="text-lg font-medium">Calling</p>
 
+      <!-- The service reconnects on its own, so the pill is a status, not an
+           action: it disappears the moment a reconnect succeeds. -->
+      @if (connectionState() === 'lost') {
+        <span
+          class="flex items-center gap-1.5 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive"
+          role="status"
+        >
+          <span class="size-1.5 animate-pulse rounded-full bg-destructive"></span>
+          Sem conexão — reconectando...
+        </span>
+      } @else if (connectionState() === 'connecting') {
+        <span
+          class="flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
+          role="status"
+        >
+          <span class="size-1.5 animate-pulse rounded-full bg-muted-foreground"></span>
+          Conectando...
+        </span>
+      }
+
       <button
         zPopover
         [zContent]="accountMenu"
@@ -95,6 +115,18 @@ export class HeaderComponent {
   protected readonly username = computed(() => this.user()?.username ?? '');
 
   protected readonly initials = computed(() => initials(this.displayName()));
+
+  /**
+   * `connected` alone cannot tell "the server just went away" from "the first
+   * handshake has not finished yet", so the loss message only shows once a
+   * connection has actually existed.
+   */
+  protected readonly connectionState = computed<'connected' | 'lost' | 'connecting'>(() => {
+    if (this.socket.connected()) {
+      return 'connected';
+    }
+    return this.socket.everConnected() ? 'lost' : 'connecting';
+  });
 
   protected toggleSidebar(): void {
     this.sidebar.toggleSidebar();

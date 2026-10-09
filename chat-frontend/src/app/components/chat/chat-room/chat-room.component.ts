@@ -19,6 +19,7 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideHash } from '@ng-icons/lucide';
 
 import { ZardAvatarComponent } from '@/shared/components/avatar/avatar.component';
+import { ZardButtonComponent } from '@/shared/components/button';
 import { ZardEmptyComponent } from '@/shared/components/empty/empty.component';
 import { ZardSkeletonComponent } from '@/shared/components/skeleton/skeleton.component';
 import { initials as toInitials } from '@/shared/utils/initials';
@@ -47,7 +48,7 @@ const STICK_THRESHOLD_PX = 48;
 @Component({
   selector: 'chat-room',
   standalone: true,
-  imports: [DatePipe, NgIcon, ScrollingModule, ZardAvatarComponent, ZardEmptyComponent, ZardSkeletonComponent, MessageInputComponent],
+  imports: [DatePipe, NgIcon, ScrollingModule, ZardAvatarComponent, ZardButtonComponent, ZardEmptyComponent, ZardSkeletonComponent, MessageInputComponent],
   host: {
     class: 'flex min-h-0 flex-1 flex-col',
   },
@@ -131,10 +132,16 @@ const STICK_THRESHOLD_PX = 48;
       </cdk-virtual-scroll-viewport>
     }
 
-    <chat-message-input
-      [disabled]="!socket.connected()"
-      (send)="send($event)"
-    />
+    @if (pendingMessage(); as pending) {
+      <!-- The send failed because the socket is down; the text is parked here
+           until a retry succeeds, so nothing the user typed is lost. -->
+      <div class="mx-auto flex w-full max-w-3xl items-center gap-2 px-3 pt-2">
+        <p class="flex-1 text-xs text-destructive">Não foi possível enviar — sem conexão com o servidor.</p>
+        <button z-button zType="outline" zSize="sm" (click)="retry()">Tentar novamente</button>
+      </div>
+    }
+
+    <chat-message-input (send)="send($event)" />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
   viewProviders: [provideIcons({ lucideHash })],
@@ -172,6 +179,8 @@ export class ChatRoomComponent {
   protected readonly rooms = signal<RoomResponse[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
+  /** Content whose send failed while the socket was down, awaiting a retry. */
+  protected readonly pendingMessage = signal<string | null>(null);
 
   private readonly viewport = viewChild<CdkVirtualScrollViewport>('viewport');
 
@@ -217,6 +226,9 @@ export class ChatRoomComponent {
         switchMap(roomId => {
           this.messages.set([]);
           this.error.set(null);
+          // The pending text belongs to the room it failed in; retrying it from
+          // another room would send it to the wrong conversation.
+          this.pendingMessage.set(null);
           this.loading.set(true);
 
           return this.roomService.getRoomHistory(roomId).pipe(finalize(() => this.loading.set(false)));
@@ -327,9 +339,19 @@ export class ChatRoomComponent {
 
   protected send(content: string): void {
     const roomId = this.roomId();
-    if (!roomId || !this.socket.sendMessage(roomId, content)) {
+    if (!roomId) {
       return;
     }
+
+    // A closed socket is the only failure path here — the composer already
+    // rejects empty or oversized content. Park the text instead of dropping it;
+    // a second failure while still offline appends, so nothing typed is lost.
+    if (!this.socket.sendMessage(roomId, content)) {
+      this.pendingMessage.update(current => (current ? `${current}\n${content}` : content));
+      return;
+    }
+
+    this.pendingMessage.set(null);
 
     // Sending re-attaches the viewport even if it had been scrolled up: the
     // point of sending is to see what you sent.
@@ -343,6 +365,13 @@ export class ChatRoomComponent {
     };
 
     this.messages.update(current => [...current, message]);
+  }
+
+  protected retry(): void {
+    const content = this.pendingMessage();
+    if (content !== null) {
+      this.send(content);
+    }
   }
 
   /**

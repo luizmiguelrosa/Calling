@@ -87,23 +87,33 @@ import { UserService } from '@/services/user.service';
                   >
                     <!-- A 24px avatar cannot fit the 16px content box the rail's
                          collapsed size-8/p-2 row leaves behind, so it drops to 16px there. -->
-                    <z-avatar
-                      class="group-data-[collapsible=icon]:size-4!"
-                      zSize="sm"
-                      [zFallback]="initials(dm.other_name || dm.other_username)"
-                    />
+                    <!-- The presence dot pins to the avatar's corner instead of the row's
+                         end: at the row end it reads as a row property, and it would
+                         survive the collapse as a stray dot on the icon rail. -->
+                    <span class="relative shrink-0">
+                      <z-avatar
+                        class="group-data-[collapsible=icon]:size-4!"
+                        zSize="sm"
+                        [zFallback]="initials(dm.other_name || dm.other_username)"
+                      />
+                      @if (isOnline(dm.other_user_id)) {
+                        <span
+                          class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-online ring-2 ring-background group-data-[collapsible=icon]:size-1.5"
+                          role="img"
+                          aria-label="Online"
+                        ></span>
+                      }
+                    </span>
                     <span>{{ dm.other_username }}</span>
-                    @if (isOnline(dm.other_user_id)) {
-                      <span
-                        class="ml-auto size-2 shrink-0 rounded-full bg-online"
-                        role="img"
-                        aria-label="Online"
-                      ></span>
-                    }
                   </a>
                 </li>
               } @empty {
-                <li class="px-2 py-1 text-xs text-muted-foreground">
+                <!-- The group label already folds away on the icon rail via its
+                     variant; the empty state is a plain li, so it has to fold
+                     itself or the text overflows the 3rem rail. -->
+                <li
+                  class="px-2 py-1 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden"
+                >
                   {{ conversations.loading() ? 'Carregando...' : 'Nenhuma conversa' }}
                 </li>
               }

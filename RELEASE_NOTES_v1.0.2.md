@@ -1,4 +1,4 @@
-# Calling v1.0.1
+# Calling v1.0.2
 
 First stable milestone of **Calling** — a lightweight internal chat app built to deliver a Slack/Teams-style experience at a fraction of the resource cost, with no embedded Chromium per user.
 
@@ -101,17 +101,28 @@ This is a POC. Deliberate gaps to be aware of before deploying anywhere real:
 
 ## Updates
 
-### Direct message synchronization
+### v1.0.2
+
+#### Connection feedback
+- The header now shows a status pill when the chat socket drops — **Sem conexão — reconectando...** once a connection has existed, and **Conectando...** during the first handshake. It clears as soon as the automatic reconnect succeeds.
+
+#### Message retry
+- Sending while the socket is down no longer silently drops the message. The composer stays enabled, the text is parked, and a **Tentar novamente** action appears above it; retrying sends the parked text once the connection is back. The pending text is cleared when switching rooms, so it cannot be sent to the wrong conversation.
+
+#### Sidebar
+- The **Nenhuma conversa** empty-state label now folds away with the rest of the rail when the sidebar is collapsed to icons.
+- The online indicator moved from the row's trailing edge to the top-right corner of each avatar, matching the conversation header.
+
+#### Window sizing
+- Restoring a maximized window with the OS shortcut (`Win+Down`) now respects the 800×600 floor. Windows restores the geometry remembered before maximizing — which can be the 480×720 auth size — and `setMinSize` only constrains future drags, so the applied size is now corrected explicitly on every restore path.
+
+### v1.0.1
+
+#### Direct message synchronization
 - Incoming DM messages now create the conversation locally immediately, without requiring a re-login. When a user receives a DM from someone they haven't chatted with before, the conversation is automatically added to the sidebar.
 
-### Window size
+#### Window size
 - Minimum window dimensions set to 800×600 to prevent the chat view from becoming unusable when resized.
 
-### Room list layout
+#### Room list layout
 - Room list width reduced from 288px (`w-72`) to 240px (`w-60`) to increase space available for conversation content.
-
-## Upcoming
-
-- Test coverage, starting with DM authorization, canonical naming, and message routing.
-- Tighten CORS and origin validation, and make the JWT secret mandatory outside development.
-- Multi-device sessions and richer room management.

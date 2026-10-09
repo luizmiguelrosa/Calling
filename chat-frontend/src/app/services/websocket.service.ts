@@ -16,6 +16,8 @@ export class WebSocketService {
   private shouldReconnect = false;
 
   readonly connected = signal(false);
+  /** Whether any connection has opened since the last explicit disconnect. */
+  readonly everConnected = signal(false);
   /** Last error the server pushed back over the socket. */
   readonly lastError = signal<string | null>(null);
   /** Everything received on the socket; views filter it down to their room. */
@@ -51,6 +53,7 @@ export class WebSocketService {
 
     socket.onopen = () => {
       this.connected.set(true);
+      this.everConnected.set(true);
       this.lastError.set(null);
     };
 
@@ -105,6 +108,7 @@ export class WebSocketService {
     this.socket?.close();
     this.socket = null;
     this.connected.set(false);
+    this.everConnected.set(false);
     this.incoming.set([]);
   }
 

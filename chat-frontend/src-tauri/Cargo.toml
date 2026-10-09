@@ -1,6 +1,6 @@
 [package]
 name = "calling"
-version = "1.0.1"
+version = "1.0.2"
 description = "Calling — lightweight internal chat client"
 authors = ["Luiz Miguel Rosa Lazarini Rubio"]
 edition = "2021"
