@@ -20,6 +20,10 @@
      single edit rather than a literal in every template. */
   --online: oklch(0.72 0.17 149);
   --canvas: oklch(0.94 0 0);
+  /* Received message bubbles sit on the muted content card, so they cannot
+     borrow `muted` — that is the surface behind them and they would vanish into
+     it. This is one step away from the card in each theme. */
+  --bubble-received: oklch(0.9 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
@@ -59,6 +63,7 @@
   --card-foreground: oklch(0.985 0 0);
   --online: oklch(0.76 0.17 149);
   --canvas: oklch(0.145 0 0);
+  --bubble-received: oklch(0.34 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
@@ -97,6 +102,7 @@
   --color-card-foreground: var(--card-foreground);
   --color-canvas: var(--canvas);
   --color-online: var(--online);
+  --color-bubble-received: var(--bubble-received);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
@@ -158,6 +164,14 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* WebView2/Edge paints a native password reveal button whose icon does not
+     follow the theme and disappears against the dark input. The app supplies its
+     own toggle, so the native one is hidden rather than restyled. */
+  input[type="password"]::-ms-reveal,
+  input[type="password"]::-ms-clear {
+    display: none;
   }
 
   input[type="number"]::-webkit-inner-spin-button,

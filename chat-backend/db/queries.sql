@@ -77,4 +77,4 @@ VALUES ($1, $2, $3, $4);
 SELECT room_id, author, content, sended_at
 FROM messages
 WHERE room_id = $1
-ORDER BY sended_at;
+ORDER BY sended_at, id;

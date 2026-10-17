@@ -1,7 +1,7 @@
 ---
 name: update-release-version
 description: Updates the release version across package.json, tauri.conf.json, Cargo.toml, and release notes files.
-version: "1.0.1"
+version: "1.0.2"
 ---
 
 # Update Release Version Skill
@@ -9,6 +9,16 @@ version: "1.0.1"
 ## Description
 
 This skill helps update the release version across all relevant files in the Calling project when a new version is requested.
+
+## Scope
+
+This skill performs **version updates only**. Its sole purpose is to change the version number and the files that carry it.
+
+- Do **not** bundle any other topic into the same change: no features, fixes, refactors, dependency bumps, documentation rewrites, or configuration changes.
+- Do **not** edit code, SQL, or behavior while running this skill.
+- The only permitted edits are the version strings listed under [Files Updated](#files-updated) and the release-notes file rename/header.
+- If the request also asks for unrelated work, complete that work separately (before or after), and keep the version bump as its own isolated change.
+- If a file needs a change that is not a version update, stop and report it instead of making the change here.
 
 ## Usage
 
@@ -48,8 +58,7 @@ When making large modifications to the codebase, consider using this skill as pa
 
 1. Complete all code changes
 2. Run tests to verify functionality
-3. Update the release version using this skill
-4. Update the release notes with a summary of changes
-5. Commit with a clear version tag
+3. Update the release version using this skill — as an isolated step that touches version strings only
+4. Commit with a clear version tag
 
-This ensures version consistency across all project files and provides clear documentation of changes.
+This ensures version consistency across all project files. Any summary of the code changes belongs to the change that made them, not to this skill's version-only step.

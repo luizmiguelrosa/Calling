@@ -1,11 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators, type AbstractControl, type ValidationErrors } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideServer } from '@ng-icons/lucide';
+import { lucideEye, lucideEyeOff, lucideServer } from '@ng-icons/lucide';
 
 import { ZardButtonComponent } from '@/shared/components/button';
 import { ZardInputComponent } from '@/shared/components/input';
@@ -46,7 +46,7 @@ export function confirmPasswordValidator(control: AbstractControl): ValidationEr
   imports: [NgIcon, ReactiveFormsModule, RouterLink, ZardButtonComponent, ZardInputComponent, ...ZardCardImports, ...ZardFieldImports],
   templateUrl: './register.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  viewProviders: [provideIcons({ lucideServer })],
+  viewProviders: [provideIcons({ lucideEye, lucideEyeOff, lucideServer })],
 })
 export class RegisterComponent {
   private readonly authService = inject(AuthService);
@@ -81,17 +81,61 @@ export class RegisterComponent {
     })
   });
 
-  protected readonly usernameInvalid = computed(() => this.showError('username', 'required'));
-  protected readonly usernameTooShort = computed(() => this.showError('username', 'minlength'));
-  protected readonly usernameTooLong = computed(() => this.showError('username', 'maxlength'));
-  protected readonly nameInvalid = computed(() => this.showError('name', 'required'));
-  protected readonly nameTooShort = computed(() => this.showError('name', 'minlength'));
-  protected readonly nameTooLong = computed(() => this.showError('name', 'maxlength'));
-  protected readonly passwordInvalid = computed(() => this.showError('password', 'required'));
-  protected readonly passwordTooShort = computed(() => this.showError('password', 'minlength'));
-  protected readonly passwordTooLong = computed(() => this.showError('password', 'maxlength'));
-  protected readonly confirmInvalid = computed(() => this.showError('confirmPassword', 'required'));
-  protected readonly confirmMismatch = computed(() => this.showError('confirmPassword', 'passwordMismatch'));
+  /** Whether each password field is currently revealed by its toggle. */
+  protected readonly showPassword = signal(false);
+  protected readonly showConfirmPassword = signal(false);
+
+  protected usernameInvalid(): boolean {
+    return this.showError('username', 'required');
+  }
+
+  protected usernameTooShort(): boolean {
+    return this.showError('username', 'minlength');
+  }
+
+  protected usernameTooLong(): boolean {
+    return this.showError('username', 'maxlength');
+  }
+
+  protected nameInvalid(): boolean {
+    return this.showError('name', 'required');
+  }
+
+  protected nameTooShort(): boolean {
+    return this.showError('name', 'minlength');
+  }
+
+  protected nameTooLong(): boolean {
+    return this.showError('name', 'maxlength');
+  }
+
+  protected passwordInvalid(): boolean {
+    return this.showError('password', 'required');
+  }
+
+  protected passwordTooShort(): boolean {
+    return this.showError('password', 'minlength');
+  }
+
+  protected passwordTooLong(): boolean {
+    return this.showError('password', 'maxlength');
+  }
+
+  protected confirmInvalid(): boolean {
+    return this.showError('confirmPassword', 'required');
+  }
+
+  protected confirmMismatch(): boolean {
+    return this.showError('confirmPassword', 'passwordMismatch');
+  }
+
+  protected togglePassword(): void {
+    this.showPassword.update(show => !show);
+  }
+
+  protected toggleConfirmPassword(): void {
+    this.showConfirmPassword.update(show => !show);
+  }
 
   constructor() {
     this.registerForm.controls.password.valueChanges.subscribe(() => {
@@ -120,9 +164,17 @@ export class RegisterComponent {
     }
   }
 
+  /**
+   * Surfaced once the field has been interacted with — typed into or left — so
+   * the message does not appear before the user has had a chance to fill it.
+   *
+   * These are plain methods rather than `computed`: `touched`, `dirty`, and
+   * `errors` are not signals, so a computed would cache its first value and never
+   * re-evaluate when the form state changes.
+   */
   private showError(control: string, error: string): boolean {
     const field = this.registerForm.get(control);
-    return !!field?.touched && !!field.errors?.[error];
+    return !!(field?.dirty || field?.touched) && !!field.errors?.[error];
   }
 }
 

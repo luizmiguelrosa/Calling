@@ -5,8 +5,50 @@
     <title>Calling</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Painted before Angular bootstraps and removed once it does, so the
+         window never shows a blank frame while the address is resolved. Kept
+         inline because the app's stylesheet has not been parsed yet. -->
+    <style>
+      .boot-splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        background: #ffffff;
+        color: #737373;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        font-size: 14px;
+      }
+      .boot-splash__spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid currentColor;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: boot-spin 0.8s linear infinite;
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-color-scheme: dark) {
+        .boot-splash {
+          background: #1c1c1c;
+          color: #a3a3a3;
+        }
+      }
+    </style>
   </head>
   <body>
-    <app-root></app-root>
+    <app-root>
+      <div class="boot-splash" aria-hidden="true">
+        <div class="boot-splash__spinner"></div>
+        <p>Conectando ao servidor...</p>
+      </div>
+    </app-root>
   </body>
 </html>

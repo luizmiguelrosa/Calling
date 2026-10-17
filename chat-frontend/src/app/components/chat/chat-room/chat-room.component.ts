@@ -13,7 +13,7 @@ import {
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
-import { filter, finalize, map, switchMap } from 'rxjs';
+import { filter, finalize, map, switchMap, tap } from 'rxjs';
 
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideHash } from '@ng-icons/lucide';
@@ -23,9 +23,11 @@ import { ZardButtonComponent } from '@/shared/components/button';
 import { ZardEmptyComponent } from '@/shared/components/empty/empty.component';
 import { ZardSkeletonComponent } from '@/shared/components/skeleton/skeleton.component';
 import { initials as toInitials } from '@/shared/utils/initials';
+import { linkify } from '@/shared/utils/linkify';
 
 import { AuthService } from '@/services/auth.service';
 import { ConversationService } from '@/services/conversation.service';
+import { ExternalLinkService } from '@/services/external-link.service';
 import { RoomService } from '@/services/room.service';
 import { UserService } from '@/services/user.service';
 import { WebSocketService } from '@/services/websocket.service';
@@ -40,6 +42,25 @@ const GROUP_GAP_MS = 5 * 60 * 1000;
  * follows new messages, which is where it sits once the list is long.
  */
 const STICK_THRESHOLD_PX = 48;
+
+/**
+ * Stable identity for a message. The server stamps `sentAt` per message, so the
+ * tuple of room, author, timestamp, and content is unique in practice — which is
+ * what lets a reloaded history and a live broadcast be recognised as the same
+ * message even though they are different objects.
+ *
+ * The timestamp is compared as an instant, not as text. A live broadcast
+ * serializes `sentAt` in UTC while a history read comes back in the server's
+ * local zone, so the same moment yields two different strings; a string key
+ * would treat the reloaded history copy as a new message and append it a second
+ * time, which is what scrambled the order and duplicated the message. Parsing to
+ * epoch milliseconds makes the identity independent of how it was formatted.
+ */
+function messageKey(message: MessageBroadcast): string {
+  const instant = new Date(message.sentAt).getTime();
+  const stamp = Number.isNaN(instant) ? message.sentAt : String(instant);
+  return `${message.room_id}\u0000${message.author}\u0000${stamp}\u0000${message.content}`;
+}
 
 /**
  * Read-only conversation view. Resolves the room from the route, loads its
@@ -75,9 +96,18 @@ const STICK_THRESHOLD_PX = 48;
     </div>
 
     @if (loading()) {
-      <div class="flex flex-col gap-2 p-4">
+      <!-- Bubble-shaped placeholders so the loading state already reads as a
+           conversation, in a colour that stands off the muted content card. The
+           width sits on a wrapper: z-skeleton applies its class input to an
+           inner div, so as a flex item it has no width of its own and a
+           percentage width on the inner div would resolve against zero. -->
+      <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
         @for (row of skeletonRows; track row) {
-          <z-skeleton class="h-10 w-full" />
+          <div class="flex w-full" [class.justify-end]="row % 3 === 0">
+            <div [class]="row % 3 === 0 ? 'w-1/2' : 'w-2/3'">
+              <z-skeleton class="h-10 w-full rounded-lg bg-bubble-received" />
+            </div>
+          </div>
         }
       </div>
     } @else if (error(); as errorMessage) {
@@ -111,12 +141,26 @@ const STICK_THRESHOLD_PX = 48;
               class="rounded-lg px-3 py-2 text-sm"
               [class.bg-primary]="isOwn(row.message)"
               [class.text-primary-foreground]="isOwn(row.message)"
-              [class.bg-muted]="!isOwn(row.message)"
+              [class.bg-bubble-received]="!isOwn(row.message)"
+              [class.border]="!isOwn(row.message)"
+              [class.border-border]="!isOwn(row.message)"
             >
               @if (!isOwn(row.message)) {
                 <p class="mb-0.5 text-xs text-muted-foreground">{{ authorName(row.message.author) }}</p>
               }
-              <p class="wrap-break-word whitespace-pre-wrap">{{ row.message.content }}</p>
+              <p class="wrap-break-word whitespace-pre-wrap">
+                @for (segment of row.segments; track $index) {
+                  @if (segment.type === 'link') {
+                    <a
+                      [href]="segment.href"
+                      class="underline underline-offset-2 hover:no-underline"
+                      (click)="openLink(segment.href, $event)"
+                    >{{ segment.value }}</a>
+                  } @else {
+                    <span>{{ segment.value }}</span>
+                  }
+                }
+              </p>
             </div>
 
             @if (row.showTime) {
@@ -161,6 +205,7 @@ export class ChatRoomComponent {
   private readonly userService = inject(UserService);
   private readonly conversations = inject(ConversationService);
   private readonly authService = inject(AuthService);
+  private readonly externalLinks = inject(ExternalLinkService);
   protected readonly socket = inject(WebSocketService);
 
   protected readonly skeletonRows = [1, 2, 3, 4];
@@ -211,7 +256,7 @@ export class ChatRoomComponent {
       const next = messages[index + 1];
       const gapToNext = next ? new Date(next.sentAt).getTime() - new Date(message.sentAt).getTime() : Infinity;
 
-      return { message, showTime: gapToNext >= GROUP_GAP_MS };
+      return { message, showTime: gapToNext >= GROUP_GAP_MS, segments: linkify(message.content) };
     });
   });
 
@@ -222,6 +267,11 @@ export class ChatRoomComponent {
       .pipe(
         map(params => params.get('id')),
         filter((id): id is string => !!id),
+        // The router reuses this component across room navigations, so the public
+        // room list fetched at construction can predate a room created since.
+        // Refetch it on every room change so a newly created room resolves its
+        // name instead of falling back to "Conversa".
+        tap(() => this.loadPublicRooms()),
         // A new room cancels the previous request and clears what was on screen.
         switchMap(roomId => {
           this.messages.set([]);
@@ -254,15 +304,28 @@ export class ChatRoomComponent {
           return;
         }
 
-        let appended = false;
+        // Identity is by value, not by reference: a history reload replaces every
+        // object, so a live message already present in the reloaded history would
+        // otherwise be appended a second time and scramble the order.
+        const seen = new Set(this.messages().map(messageKey));
+        const additions: MessageBroadcast[] = [];
+
         for (const message of buffered) {
-          if (message.room_id === roomId && !this.messages().includes(message)) {
-            this.messages.update(current => [...current, message]);
-            appended = true;
+          if (message.room_id !== roomId) {
+            continue;
           }
+
+          const key = messageKey(message);
+          if (seen.has(key)) {
+            continue;
+          }
+
+          seen.add(key);
+          additions.push(message);
         }
 
-        if (appended) {
+        if (additions.length > 0) {
+          this.messages.update(current => [...current, ...additions]);
           this.intent.set('if-following');
         }
       },
@@ -314,7 +377,16 @@ export class ChatRoomComponent {
 
     // History carries author IDs; the directory turns them into names.
     this.userService.loadOnce().subscribe({ error: () => undefined });
+  }
 
+  /**
+   * Re-reads the public room list that backs the header title. Called on every
+   * room change rather than once at construction: the router reuses this
+   * component across room navigations, so a room created after this instance was
+   * built would otherwise be missing and the header would fall back to
+   * "Conversa".
+   */
+  private loadPublicRooms(): void {
     this.roomService
       .getPublicRooms()
       .subscribe({ next: rooms => this.rooms.set(rooms), error: () => undefined });
@@ -326,6 +398,12 @@ export class ChatRoomComponent {
 
   protected isOwn(message: MessageBroadcast): boolean {
     return message.author === this.currentUserId;
+  }
+
+  /** Confirms before handing the URL to the OS, so a stray click cannot launch it. */
+  protected openLink(url: string, event: Event): void {
+    event.preventDefault();
+    this.externalLinks.confirmAndOpen(url);
   }
 
   protected isOnline(userId: string): boolean {

@@ -12,6 +12,7 @@ import { ZardDialogRef } from '@/shared/components/dialog/dialog-ref';
 import { ZardEmptyComponent } from '@/shared/components/empty/empty.component';
 import { ZardSkeletonComponent } from '@/shared/components/skeleton/skeleton.component';
 
+import { RoomNavigationService } from '@/services/room-navigation.service';
 import { RoomService } from '@/services/room.service';
 
 /**
@@ -29,7 +30,7 @@ import { RoomService } from '@/services/room.service';
     class: 'flex min-h-0 flex-1',
   },
   template: `
-    <div class="flex w-60 shrink-0 flex-col border-r">
+    <div class="flex lg:w-60 shrink-0 flex-col border-r md:w-48">
       <div class="flex h-14 shrink-0 items-center gap-2 px-4">
         <h1 class="text-xl font-semibold">Início</h1>
 
@@ -89,6 +90,7 @@ import { RoomService } from '@/services/room.service';
 })
 export class RoomListComponent {
   private readonly roomService = inject(RoomService);
+  private readonly roomNavigation = inject(RoomNavigationService);
   private readonly router = inject(Router);
   private readonly dialogService = inject(ZardDialogService);
 
@@ -129,6 +131,16 @@ export class RoomListComponent {
         next: rooms => this.rooms.set(rooms),
         error: () => this.error.set('Tente novamente em instantes.'),
       });
+
+    // Remember the open room so the sidebar's "Início" entry can return to it.
+    // Only the public-room route sets `selectedRoomId`, so a DM never becomes
+    // the remembered target.
+    effect(() => {
+      const roomId = this.selectedRoomId();
+      if (roomId) {
+        this.roomNavigation.remember(roomId);
+      }
+    });
 
     effect(() => {
       // `create` returns `ZardDialogRef<T>` without the result type, so

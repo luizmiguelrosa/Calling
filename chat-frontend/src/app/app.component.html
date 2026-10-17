@@ -1,3 +1,7 @@
+@if (booting()) {
+  <app-startup-loading />
+}
+
 @if (showTitleBar) {
   <app-titlebar />
 }

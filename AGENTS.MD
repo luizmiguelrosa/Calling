@@ -33,7 +33,8 @@ Calling/
 ├── docs/
 │   └── PRIME-NG.md         # PrimeNG documentation
 ├── README.md                 # Product description, architecture, API, and setup notes
-├── RELEASE_NOTES_v1.0.0.md   # GitHub release notes for the v1.0.0 milestone
+├── LICENSE                   # GNU Affero General Public License v3.0 (AGPL-3.0)
+├── RELEASE_NOTES_v1.0.3.md   # GitHub release notes for the v1.0.3 milestone
 ├── AGENTS.MD                 # This file
 ├── go.work                   # Go workspace; uses ./chat-backend
 ├── chat-backend/
@@ -73,9 +74,11 @@ Calling/
     ├── angular.json          # Angular workspace config
     ├── components.json       # zard-cli config (base URL, aliases, icon family)
     ├── package.json          # npm scripts and dependencies
+    ├── scripts/
+    │   └── rename-bundle.mjs # Post-build rename of bundle artifacts + portable exe to `Calling_v<version>_<arch>`
     ├── src/
-    │   ├── main.ts
-    │   ├── index.html
+    │   ├── main.ts                 # Bootstraps the app and drops the pre-bootstrap splash
+    │   ├── index.html              # Host page; carries the inline startup splash
     │   ├── styles.css        # Tailwind v4 theme tokens and global base rules
     │   ├── environments/
     │   │   ├── environment.ts
@@ -97,6 +100,7 @@ Calling/
     │       │   └── layout/
     │       │       ├── header/          # App bar (sidebar toggle, account menu, logout)
     │       │       ├── sidebar/         # Conversation rail
+    │       │       ├── startup-loading/ # Full-screen splash while connecting at startup
     │       │       └── titlebar/        # Custom window chrome (drag region + window buttons)
     │       ├── guards/
     │       │   └── auth.guard.ts       # authGuard (requires session), guestGuard (rejects one)
@@ -107,12 +111,14 @@ Calling/
     │       │   ├── api-config.service.ts # Backend address resolution and persistence
     │       │   ├── auth.service.ts      # Login/register calls and session storage
     │       │   ├── conversation.service.ts # Signed-in user's DM directory
+    │       │   ├── external-link.service.ts # Confirms and opens external links in the default browser
+    │       │   ├── room-navigation.service.ts # Last public room visited, for the sidebar's "Início" entry
     │       │   ├── room.service.ts      # Room and history endpoints
     │       │   ├── theme.service.ts     # Dark-mode state, persistence, and OS-preference following
     │       │   ├── user.service.ts      # User directory and presence
     │       │   ├── websocket.service.ts # App-scoped chat socket
     │       │   └── window.service.ts    # Per-route window sizing and window controls
-    │       ├── shared/                  # zard/ui components and shared utilities
+    │       ├── shared/                  # zard/ui components and shared utilities (incl. `utils/linkify.ts`)
     │       └── types/                   # Ambient DTO interfaces
     └── src-tauri/
         ├── Cargo.toml
@@ -135,7 +141,7 @@ The backend follows a handler → service → repository separation:
 7. `internal/auth/jwt.go` provides the `GenerateToken` function and `Claims` struct for JWT issuance.
 8. `internal/auth/middleware.go` provides `Middleware(secret)` which validates the `Authorization: Bearer <token>` header and stores the user ID in the request context.
 9. `chat-backend` is the only Go module. The desktop client is a separate npm project (`chat-frontend`) and is not in the Go workspace.
-10. On the client, `chat-frontend/src/app/app.component.ts` renders `TitleBarComponent` above the routed view and drives `WindowService.applyRoute` from `NavigationEnd`.
+10. On the client, `chat-frontend/src/app/app.component.ts` renders `StartupLoadingComponent` while the app is still connecting, then `TitleBarComponent` above the routed view, and drives `WindowService.applyRoute` from `NavigationEnd`. It also opens the app-scoped socket for a session restored from storage.
 11. `chat-frontend/src/app/services/` holds the client's equivalent of the handler→service→repository chain: components call services, services call `ApiService` (authenticated) or `HttpClient` (public), and `ApiService` resolves the backend address through `ApiConfigService`.
 
 Keep dependencies flowing inward. Handlers should not issue SQL directly, services should not depend on concrete PostgreSQL types, and repositories should hide sqlc-to-domain mapping. On the client, components should not build URLs and should not read storage directly; go through `ApiService` and `AuthService`.
@@ -147,7 +153,7 @@ Routes are registered in `cmd/server/main.go`:
 - `POST /users` — register a user (public)
 - `POST /users/login` — validate credentials and issue a JWT (public)
 - `GET /users` — dual-purpose: with `?user_id=` it returns that single user, without it the full user directory (`UserResponse[]`, ordered by username, no password column) — requires JWT
-- `GET /history?room_id=` — retrieve room history — requires JWT
+- `GET /history?room_id=` — retrieve room history — requires JWT. Ordered by `sended_at, id`, so messages sharing a timestamp keep their insertion order and the client's ordering is stable across reloads.
 - `GET /users/online` — list connected user IDs — requires JWT
 - `GET /chat` — WebSocket upgrade; user identity is extracted from the JWT — requires JWT
 - `POST /rooms` — create a room/channel — requires JWT
@@ -164,6 +170,12 @@ WebSocket clients send JSON shaped like:
 ```
 
 Public-room messages are broadcast to other connected clients. DM messages are sent only to the other participant. Messages are validated, stored, then routed. Validation and service errors are sent back as JSON over the originating WebSocket.
+
+The chat header titles itself from the DM peer or the public room name. `ChatRoomComponent` resolves the public name from the `GET /rooms` list, and refetches that list on every room change rather than once at construction: the router reuses the component across public-room navigations (`/chat/rooms/:id` shares one route config), so a room created after the instance was built would otherwise be missing and the header would fall back to `Conversa` until the component was recreated — which is why opening a DM and returning appeared to fix it.
+
+The sidebar's "Início" entry returns to the last public room visited rather than the bare room list. `RoomNavigationService` holds that room id, persisted in `localStorage` under `calling_last_room`; `RoomListComponent` records it from the URL (so only public rooms qualify — the DM route is a different path), and the sidebar's `homePath` computed appends it to `/chat/rooms` when set.
+
+A broadcast carries no message id, so the client identifies a message by the tuple of room, author, `sentAt`, and content. That is what lets a live broadcast already present in a reloaded history be recognised as the same message instead of being appended twice — the duplicate that used to scramble the order when returning to a conversation. The client compares `sentAt` as an instant (`new Date(...).getTime()`, millisecond precision) rather than as text, because the live broadcast serializes it in UTC while a history read comes back in the server's local zone: the same moment yields two different strings, and a string key would treat the reloaded copy as a new message and append it again. `ProcessAndStoreMessage` still normalizes the stored value with `time.Now().UTC().Truncate(time.Microsecond)` so the column keeps microsecond precision, but the client's identity no longer depends on the two strings matching byte for byte.
 
 ## JWT authentication
 
@@ -207,7 +219,9 @@ Addresses are normalized by `ApiConfigService.normalize`: a missing scheme becom
 
 Native window decorations are disabled (`decorations: false` in `tauri.conf.json`), so `TitleBarComponent` supplies the drag region and the minimize/maximize/close buttons. It is rendered only when `isTauri()` is true, so browser development is not left with dead window chrome. `WindowService` pins the auth routes (`/login`, `/register`, `/settings/server`) to 480x720 and maximizes the app routes. Pinning is done with `setMinSize`/`setMaxSize` to the same value rather than `resizable: false` alone: `resizable: false` only disables dragging the edge, leaving the OS free to restore whatever geometry it had before — which is why the window came back at its maximized size after leaving the chat. The constraints must be lifted (`setMinSize(null)`) before maximizing, or the maximize call is clamped. Leaving a maximized window also needs `unmaximize` to settle before resizing, since Windows applies the restore asynchronously.
 
-Windows open centered. `center: true` in `tauri.conf.json` covers creation, and `WindowService.applyStartup()` covers the startup handoff — a session restored straight into the chat maximizes, and the window should not sit wherever the OS placed it before that landed. Restoring from maximized (`toggleMaximize`) re-centers too, since a normal-sized window that lands on remembered geometry can be off-screen. Restoring can also come from the OS — `Win+Down` on Windows — which never goes through `toggleMaximize`, so `WindowService.watchRestore()` listens for the resize event and re-applies the constraints on that path. Windows restores the geometry it remembered before maximizing, which can be the 480x720 auth size and therefore under the 800x600 app floor; `setMinSize` only constrains future interactive drags and never corrects the geometry the OS just applied, so `enforceMinFloor()` reads the current size and grows the window back to the floor on every restore path. Every window command used needs a matching entry in `src-tauri/capabilities/default.json`; Tauri denies undeclared commands at runtime rather than failing the build.
+Windows open centered. `center: true` in `tauri.conf.json` covers creation, and `WindowService.applyStartup()` covers the startup handoff — a session restored straight into the chat maximizes, and the window should not sit wherever the OS placed it before that landed. `applyStartup()` only centers; it deliberately does not set the app floor, because the window is still at the 480x720 auth size at that point and raising the floor to 800x600 would grow it, only for `applyRoute` to resize it again — a visible jump on every launch. `applyAppSize()` likewise maximizes before setting the floor, so the min size cannot grow the window on the way up. `watchResize()` ignores resize events until the first route has set a mode, since there is nothing to size against during the startup handoff. The maximize button (`toggleMaximize`) re-applies the floor on every click, whether maximizing or restoring, so a restore cannot land under it. It is only ever applied while the window is restored — before maximizing, or after restoring — because tao's `set_min_inner_size` re-applies the window's current inner size through `set_inner_size`, which clears the maximized flag and `SetWindowPos`es the window to that size: calling `setMinSize` while maximized drops the window back to a full-size, non-maximized state. Restoring from maximized re-centers too, since a normal-sized window that lands on remembered geometry can be off-screen. The OS can also resize the window without going through `toggleMaximize` — `Win+Down`, dragging the title bar out of maximized, or a snap — so `WindowService.watchResize()` listens for the resize event and re-applies the constraints on every resize, not only when the maximized state flips. Acting only on a state change missed the paths where the resize lands while `isMaximized()` still reads true, or where the window is resized without that flag changing at all. Windows restores the geometry it remembered before maximizing, which can be the 480x720 auth size and therefore under the 800x600 app floor; `setMinSize` only constrains future interactive drags and never corrects the geometry the OS just applied, so `enforceMinFloor()` reads the current size and grows the window back to the floor on every resize. Re-centering stays on the restore path alone, since centering on every resize would fight the user while they drag. Every window command used needs a matching entry in `src-tauri/capabilities/default.json`; Tauri denies undeclared commands at runtime rather than failing the build.
+
+Startup shows a splash in two layers. `index.html` carries an inline `.boot-splash` inside `<app-root>`, painted before Angular bootstraps and removed by `main.ts` once `bootstrapApplication` resolves — without it the window shows a blank frame while the address is resolved. `StartupLoadingComponent` then covers the first WebSocket handshake for a restored session, released when `WebSocketService.connected()` turns true or after a 4s timeout, so a backend that never answers cannot hold the window behind a spinner. The chat view shows a bubble-shaped `z-skeleton` while a room's history is fetched.
 
 The chat history pins itself to the latest message with a `ResizeObserver` on the content wrapper inside the scroll viewport, not with an `effect` over the message signals. An effect cannot work here: it runs before the template has rendered, so the elements it needs do not exist yet and no later signal change re-triggers it — the history stays at the top until an unrelated interaction causes a re-render. Deferring with `afterNextRender` does not fix it either, because that still couples the scroll to Angular's render scheduling rather than to the content's actual size. The observer fires after layout, so the height it reads is final. It is attached in `ngAfterViewInit` and disconnected in `ngOnDestroy`, and guards on a `following` flag driven by the viewport's `scroll` event so reading history is not interrupted by an incoming message; sending re-attaches the viewport regardless. The jump uses `scrollTo({ top: scrollHeight })` rather than assigning `scrollTop`, since `scrollHeight` is the content height and assigning it overshoots by the viewport height. The `sm:max-w-sm` cap in the vendored `dialog.variants.ts` overrides any `zWidth`, so a wider dialog needs `zCustomClasses` alongside it — `mergeClasses` resolves the conflict without editing generated zard source.
 
@@ -216,6 +230,8 @@ The root layout lives in `app.component.css`, not in a `host` class. Angular rew
 ## Theming and settings
 
 Dark mode is a `dark` class on `document.documentElement`; `styles.css` already defines a full `.dark` token set, so toggling the class repaints the app with no per-component state. `ThemeService.init()` runs as an app initializer to avoid a light-mode flash on first paint. It persists an explicit choice in `localStorage` under `calling_theme`, and only falls back to `prefers-color-scheme` — with a live listener — while nothing has been chosen.
+
+Chat bubbles use dedicated tokens rather than the generic surface ones: the signed-in user's bubble keeps the accent `--primary`, while received bubbles use `--bubble-received`. The received bubble needs its own token because the generic `--secondary`/`--muted` surfaces sit too close to the app background to read as a distinct bubble.
 
 Settings are a tree of categories → groups → settings declared in `settings-registry.ts`, and `SettingsDialogComponent` renders that tree generically: adding a setting is a data change, not a template change. The registry is built through an `Injector` because the module is evaluated at import time, outside any injection context, so `ThemeService` can only be resolved when a control is read or written.
 
@@ -259,9 +275,22 @@ npm run build
 # Run the desktop shell (starts the client dev server too)
 npm run tauri dev
 
+# Produce a release bundle (installer/MSI)
+npm run tauri build
+
 # Type-check the Rust side
 cd src-tauri && cargo check
 ```
+
+Tauri v2 has no config option for the bundle file name, so release artifacts are renamed after bundling to the project's convention, `Calling_v<version>_<arch>`. `scripts/rename-bundle.mjs` reads `productName` and `version` from `tauri.conf.json` and rewrites the names in `src-tauri/target/release/bundle`; it is wired as the `posttauri` npm script, so any `npm run tauri build` invocation applies it automatically. The script is idempotent and a no-op when no matching artifacts exist (for example after `tauri dev`).
+
+The release produces three artifacts, named so they can coexist as distinct release assets:
+
+- `Calling_v<version>_<arch>.exe` — the portable build, copied from the raw binary (`target/release/calling.exe`, named after the Cargo package) into `bundle/portable/`. It runs on its own but still needs the WebView2 runtime present.
+- `Calling_v<version>_<arch>-setup.exe` — the NSIS installer (keeps its `-setup` suffix).
+- `Calling_v<version>_<arch>_en-US.msi` — the MSI.
+
+The portable keeps the clean name and the installer keeps `-setup` because a GitHub release cannot hold two assets with the same name.
 
 `serve.options.host` is pinned to `127.0.0.1` in `angular.json`, and it must stay there. The Angular dev server otherwise binds `[::1]` only, while Tauri's WebView2 resolves `localhost` to IPv4 first — so it connects to a port nobody is listening on and the window renders blank. The packaged build is unaffected because it serves from disk, which is why this shows up in dev alone.
 
@@ -293,8 +322,11 @@ The current upgrader accepts every origin (`CheckOrigin` returns true), and CORS
 - The frontend keeps the session in `localStorage`, so a restart resumes the signed-in user instead of returning to login. The cost is that storage is shared by every window of an origin, so a second login in another window replaces the first window's identity.
 - A stored token is treated as a claim that a session *may* exist, never as proof. `authGuard` only checks that a token and user were persisted; `authInterceptor` clears the session and redirects to `/login` on any `401` from a non-login endpoint. Login and register are excluded from that rule because a wrong password is also a 401.
 - `guestGuard` keeps a signed-in user off the login and register screens.
-- Login and register split their feedback in two: field validation renders in `z-field-error` under its own input, while the server's rejection renders once below the fields, because it belongs to no single input.
+- Login and register split their feedback in two: field validation renders in `z-field-error` under its own input, while the server's rejection renders once below the fields, because it belongs to no single input. A `401` or `404` from login is mapped to a single **Usuário ou senha inválidos.** line before the response body is read, so the server's English sentinel text never reaches the screen and the message does not reveal which usernames exist. The line clears on the next edit to either field.
+- The per-field validation flags are plain methods, not `computed`. `touched`, `dirty`, and `errors` on a form control are not signals, so a computed would cache its first value and never surface an error — which is why the minimum-length messages never appeared. The flags read `dirty || touched` so feedback shows as soon as the field is interacted with.
+- The password fields carry a custom reveal toggle (`lucideEye`/`lucideEyeOff`) styled with `text-muted-foreground` so it contrasts in both themes. The native WebView2 reveal button is hidden in `styles.css` (`::-ms-reveal`) so the two do not stack.
 - The server-address connection probe uses raw `fetch` rather than `HttpClient`. Any HTTP status counts as reachable — a 401 from `/users/online` still proves a server is there — but routing it through `HttpClient` would let that 401 reach `authInterceptor` and sign the user out over a connectivity check.
+- Message text is linkified in the client (`shared/utils/linkify.ts`) and rendered as anchors. Clicking one does not navigate the webview: `ExternalLinkService` shows a confirmation dialog and only then opens the URL in the OS default browser, so a hostile link cannot drive the app window.
 - CORS and WebSocket origin checks are permissive.
 - The client validates credentials against the backend's own constraints rather than duplicating them as its own source of truth; the constants (`USERNAME_MIN`, `PASSWORD_MIN`, and so on) mirror the Go DTO tags and must be changed together with them.
 - The frontend has no tests configured.

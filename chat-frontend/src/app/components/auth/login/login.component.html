@@ -34,8 +34,19 @@
 
                         <div z-field [attr.data-invalid]="passwordInvalid() || passwordTooShort() || passwordTooLong() || null">
                             <label z-field-label for="password">Senha</label>
-                            <input z-input id="password" formControlName="password" type="password" required
-                                   [attr.aria-invalid]="passwordInvalid() || passwordTooShort() || passwordTooLong() || null"/>
+                            <div class="relative">
+                                <input z-input id="password" formControlName="password" [type]="showPassword() ? 'text' : 'password'" required
+                                       class="pr-9"
+                                       [attr.aria-invalid]="passwordInvalid() || passwordTooShort() || passwordTooLong() || null"/>
+                                <button
+                                    type="button"
+                                    class="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+                                    [attr.aria-label]="showPassword() ? 'Ocultar senha' : 'Mostrar senha'"
+                                    (click)="togglePassword()"
+                                >
+                                    <ng-icon [name]="showPassword() ? 'lucideEyeOff' : 'lucideEye'" class="size-4" />
+                                </button>
+                            </div>
                             @if (passwordInvalid()) {
                                 <z-field-error>Informe a senha.</z-field-error>
                             } @else if (passwordTooShort()) {

@@ -47,11 +47,18 @@ func (s *chatService) ProcessAndStoreMessage(ctx context.Context, userID string,
 
 	cleanContent := strings.TrimSpace(incoming.Content)
 
+	// The client identifies a message by its room, author, timestamp, and content
+	// to avoid appending a buffered broadcast twice after a history reload. It
+	// compares the timestamp as an instant, so the broadcast and the stored column
+	// need not serialize identically — but the value is still normalized to UTC at
+	// microsecond precision so the column is deterministic: a raw time.Now()
+	// carries nanoseconds, and PostgreSQL stores TIMESTAMPTZ at microsecond
+	// precision.
 	msg := &models.MessageBroadcast{
 		RoomID:  incoming.RoomID,
 		Author:  userID,
 		Content: cleanContent,
-		SentAt:  time.Now(),
+		SentAt:  time.Now().UTC().Truncate(time.Microsecond),
 	}
 
 	if err := s.repo.SaveMessage(ctx, msg); err != nil {

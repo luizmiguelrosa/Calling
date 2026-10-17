@@ -1,14 +1,22 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { isTauri } from '@tauri-apps/api/core';
 import { filter } from 'rxjs';
 
+import { StartupLoadingComponent } from './components/layout/startup-loading/startup-loading.component';
 import { TitleBarComponent } from './components/layout/titlebar/titlebar.component';
 import { AuthService } from './services/auth.service';
 import { UserService } from './services/user.service';
 import { WebSocketService } from './services/websocket.service';
 import { WindowService } from './services/window.service';
+
+/**
+ * How long the splash waits for the first socket handshake before releasing the
+ * app anyway. A backend that never answers must not hold the whole window behind
+ * a spinner — the header's own connection pill takes over from there.
+ */
+const STARTUP_CONNECT_TIMEOUT_MS = 4000;
 
 /**
  * The title bar sits above the routed view so every window gets it: the app
@@ -18,7 +26,7 @@ import { WindowService } from './services/window.service';
  */
 @Component({
   selector: "app-root",
-  imports: [RouterOutlet, TitleBarComponent],
+  imports: [RouterOutlet, StartupLoadingComponent, TitleBarComponent],
   templateUrl: "./app.component.html",
   styleUrl: "./app.component.css",
   // The root's own layout lives in `app.component.css` rather than here: a
@@ -40,11 +48,21 @@ export class AppComponent {
    */
   protected readonly showTitleBar = isTauri();
 
+  /**
+   * True until the first route has settled and, for a restored session, the
+   * socket has connected. The splash covers the address resolution that runs
+   * before bootstrap and the first handshake, so the chat never flashes empty.
+   */
+  protected readonly booting = signal(true);
+
   constructor() {
     // Center before the first navigation settles. The auth route would center
     // anyway, but a session restored straight into the chat maximizes, and the
     // window should not sit wherever the OS placed it during that handoff.
     void this.windowService.applyStartup();
+
+    const release = () => this.booting.set(false);
+    const timeout = setTimeout(release, STARTUP_CONNECT_TIMEOUT_MS);
 
     this.router.events
       .pipe(
@@ -59,7 +77,19 @@ export class AppComponent {
         if (this.authService.isAuthenticated()) {
           this.socket.connect();
           this.userService.loadOnline();
+        } else {
+          // No session means no handshake to wait for; the auth screen is ready.
+          clearTimeout(timeout);
+          release();
         }
       });
+
+    // A restored session releases the splash the moment the handshake lands.
+    effect(() => {
+      if (this.socket.connected()) {
+        clearTimeout(timeout);
+        release();
+      }
+    });
   }
 }

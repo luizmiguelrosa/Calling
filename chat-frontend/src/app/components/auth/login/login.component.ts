@@ -1,11 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideServer } from '@ng-icons/lucide';
+import { lucideEye, lucideEyeOff, lucideServer } from '@ng-icons/lucide';
 
 import { ZardButtonComponent } from '@/shared/components/button';
 import { ZardInputComponent } from '@/shared/components/input';
@@ -39,7 +40,7 @@ const PASSWORD_MAX = 72;
   imports: [NgIcon, ReactiveFormsModule, RouterLink, ZardButtonComponent, ZardInputComponent, ...ZardCardImports, ...ZardFieldImports],
   templateUrl: './login.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  viewProviders: [provideIcons({ lucideServer })],
+  viewProviders: [provideIcons({ lucideEye, lucideEyeOff, lucideServer })],
 })
 export class LoginComponent {
   private readonly authService = inject(AuthService);
@@ -71,11 +72,38 @@ export class LoginComponent {
     }),
   });
 
-  protected readonly usernameInvalid = computed(() => this.showError('username', 'required'));
-  protected readonly usernameTooShort = computed(() => this.showError('username', 'minlength'));
-  protected readonly passwordInvalid = computed(() => this.showError('password', 'required'));
-  protected readonly passwordTooShort = computed(() => this.showError('password', 'minlength'));
-  protected readonly passwordTooLong = computed(() => this.showError('password', 'maxlength'));
+  constructor() {
+    // Editing the form invalidates the previous rejection, so the message does
+    // not linger over a value the user has already changed.
+    this.loginForm.valueChanges.pipe(takeUntilDestroyed()).subscribe(() => this.error.set(null));
+  }
+
+  /** Whether the password is currently revealed by the toggle. */
+  protected readonly showPassword = signal(false);
+
+  protected usernameInvalid(): boolean {
+    return this.showError('username', 'required');
+  }
+
+  protected usernameTooShort(): boolean {
+    return this.showError('username', 'minlength');
+  }
+
+  protected passwordInvalid(): boolean {
+    return this.showError('password', 'required');
+  }
+
+  protected passwordTooShort(): boolean {
+    return this.showError('password', 'minlength');
+  }
+
+  protected passwordTooLong(): boolean {
+    return this.showError('password', 'maxlength');
+  }
+
+  protected togglePassword(): void {
+    this.showPassword.update(show => !show);
+  }
 
   protected async onSubmit(): Promise<void> {
     if (this.loginForm.invalid) {
@@ -107,10 +135,17 @@ export class LoginComponent {
     }
   }
 
-  /** Only surfaced once the field has been touched, or submitted empty. */
+  /**
+   * Surfaced once the field has been interacted with — typed into or left — so
+   * the message does not appear before the user has had a chance to fill it.
+   *
+   * These are plain methods rather than `computed`: `touched`, `dirty`, and
+   * `errors` are not signals, so a computed would cache its first value and never
+   * re-evaluate when the form state changes.
+   */
   private showError(control: string, error: string): boolean {
     const field = this.loginForm.get(control);
-    return !!field?.touched && !!field.errors?.[error];
+    return !!(field?.dirty || field?.touched) && !!field.errors?.[error];
   }
 }
 
@@ -129,6 +164,13 @@ function describeLoginError(err: unknown): string {
     return 'Servidor inacessível. Confira o endereço em Servidor.';
   }
 
+  // A wrong password is a 401 and an unknown user a 404. Both get the same line,
+  // and it is checked before the body so the server's English sentinel text
+  // never reaches the screen — nor reveals which usernames exist.
+  if (err.status === 401 || err.status === 404) {
+    return 'Usuário ou senha inválidos.';
+  }
+
   const message = (err.error as { message?: unknown } | null)?.message;
 
   if (Array.isArray(message)) {
@@ -140,10 +182,6 @@ function describeLoginError(err: unknown): string {
     // meant for the status mapping, not for display.
     const detail = message.replace(/^(unauthorized|not_found|conflict|forbidden):\s*/, '');
     return detail || message;
-  }
-
-  if (err.status === 401 || err.status === 404) {
-    return 'Usuário ou senha inválidos.';
   }
 
   return 'Não foi possível entrar. Tente novamente.';

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink } from '@angular/router';
 
@@ -12,6 +12,7 @@ import { ZardSidebarImports } from '@/shared/components/sidebar/sidebar.imports'
 import { initials as toInitials } from '@/shared/utils/initials';
 
 import { ConversationService } from '@/services/conversation.service';
+import { RoomNavigationService } from '@/services/room-navigation.service';
 import { UserService } from '@/services/user.service';
 
 /**
@@ -58,7 +59,7 @@ import { UserService } from '@/services/user.service';
             <li z-sidebar-menu-item>
               <a
                 z-sidebar-menu-button
-                [routerLink]="home.path"
+                [routerLink]="homePath()"
                 [zActive]="activeUrl().startsWith(home.path)"
                 [zTooltip]="home.label"
               >
@@ -134,8 +135,18 @@ export class SidebarComponent {
 
   protected readonly conversations = inject(ConversationService);
   private readonly userService = inject(UserService);
+  private readonly roomNavigation = inject(RoomNavigationService);
 
   protected readonly home = { label: 'Início', path: '/chat/rooms', icon: 'lucideHouse' };
+
+  /**
+   * "Início" returns to the last public room visited, falling back to the bare
+   * room list when none has been opened yet.
+   */
+  protected readonly homePath = computed(() => {
+    const lastRoomId = this.roomNavigation.lastRoomId();
+    return lastRoomId ? `${this.home.path}/${lastRoomId}` : this.home.path;
+  });
 
   /** Exposed for the template — an imported function is not in its scope. */
   protected readonly initials = toInitials;
