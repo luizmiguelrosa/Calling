@@ -35,7 +35,7 @@ Calling takes the opposite approach:
 
 - **Backend**: Go, [chi](https://github.com/go-chi/chi) router, [gorilla/websocket](https://github.com/gorilla/websocket), [go-playground/validator](https://github.com/go-playground/validator), [go.uber.org/dig](https://github.com/uber-go/dig), [golang-jwt/jwt/v5](https://github.com/golang-jwt/jwt).
 - **Database**: PostgreSQL, [pgx](https://github.com/jackc/pgx) driver + pool, [sqlc](https://sqlc.dev/) for type-safe generated queries, Docker Compose for the dev container.
-- **Frontend**: [Tauri](https://tauri.app/) (Rust shell + system webview) with [Angular](https://angular.dev/) 22, Tailwind CSS v4, and [zard/ui](https://zardui.com/) components installed as source.
+- **Frontend**: [Tauri](https://tauri.app/) (Rust shell + system webview) with [Angular](https://angular.dev/) 22, Tailwind CSS v4, and [zard/ui](https://zardui.com/) components installed as source. Native notifications use `tauri-plugin-notification`; attachment saves use `tauri-plugin-dialog` + `tauri-plugin-fs`.
 
 ---
 
@@ -60,14 +60,16 @@ The backend follows a **handler → service → repository** separation:
 - **Service** (`internal/chat/service.go`) — business rules (validation, DM permissions, room naming).
 - **Repository** (`internal/chat/repository.go`) — persistence backed by PostgreSQL.
 - **User module** (`internal/user/`) — registration, credential validation, and lookup.
-- **Auth module** (`internal/auth/`) — JWT `Claims`, `GenerateToken`, and request `Middleware`.
+- **Files module** (`internal/files/`) — room-file and profile-photo uploads, access checks, and the serve endpoints.
+- **Storage module** (`internal/storage/`) — the configurable file root, the on-disk layout, and avatar processing.
+- **Auth module** (`internal/auth/`) — JWT `Claims` (carrying a `token_type`), token-pair generation (`GenerateTokenPair`), `ParseToken`, and request `Middleware`. Login and `POST /users/refresh` issue an access/refresh pair; the middleware accepts only access tokens.
 
 ---
 
 ## Features
 
 - **Users** — register, login (credential validation + JWT issuance), and lookup. Passwords are hashed with **bcrypt**. Roles: `Developer`, `Admin`.
-- **JWT authentication** — login issues an HS256 token valid for 1 hour; the signing secret comes from `JWT_SECRET`. All routes except register and login are protected.
+- **JWT authentication** — login issues an HS256 access token valid for 1 hour plus a refresh token valid for 1 week; `POST /users/refresh` rotates the pair. The signing secret comes from `JWT_SECRET`. All routes except register, login, and refresh are protected.
 - **Public channels** — create and list public chat rooms.
 - **Direct messages (DMs)** — 1:1 private rooms between two users.
   - The room name is canonicalized as `{smaller_id}-{larger_id}`, so a user pair can never end up with two rooms.
@@ -76,9 +78,21 @@ The backend follows a **handler → service → repository** separation:
 - **Message history** per room, and an **online users** list.
 - **Real-time messaging** over a single WebSocket, with broadcast (public) and targeted (DM) delivery.
 - **Desktop client** — login, register, conversation rail, channel/DM views, and composer.
-- **Settings modal** — a searchable category tree; **Aparência** holds the dark-mode switch.
+- **Settings modal** — a searchable category tree with **Aparência** (dark mode), **Inicialização** (startup behaviour), **Perfil** (profile photo), and **Cache** (retention, usage, clear).
 - **Dark mode** — follows the OS preference until an explicit choice is made, then persists it.
-- **Session persistence** — a restart resumes the signed-in user; a `401` clears the session and returns to login.
+- **Startup preference** — on launch, either restore the last opened conversation or always open the home screen; the choice and the last route are stored per user.
+- **Typing indicators** — a typing signal is relayed over the socket while the other participant types and expires on its own if the "stopped" frame is lost.
+- **Session persistence** — a restart resumes the signed-in user; an expired access token is transparently refreshed, and only an unrecoverable `401` clears the session and returns to login.
+- **Notifications** — an OS notification for every incoming message, in any room; a public room is titled `#room_name`. Clicking it focuses the window and opens the conversation it came from. The taskbar button also flashes natively while the window is not in front.
+- **Mentions** — name people with `@username`, or everyone in a public room with `@all` (a group syntax `@group:<name>` is reserved but not implemented). `@all` is not offered in a direct message. Typing `@` opens an autocomplete above the composer that filters as you type; mentions render as chips, and clicking one opens the person's profile — or, for `@all`, the list of users. A mention titles the notification `Você foi mencionado em <room>` and adds an `@` badge to the room list, the DM list, and the sidebar rail.
+- **Unread indicators** — a per-room badge in the public room list, the DM list, and the sidebar rail, plus a dot on the rail's avatars when the sidebar is collapsed.
+- **Presence status** — the header's account menu sets **Online**, **Ausente**, or **Não perturbe**; the choice is announced over the socket so other users see it as a coloured dot on the avatar.
+- **Do Not Disturb and per-room mute** — silence the native notification and the taskbar flash while keeping unread counts.
+- **File messages** — attach any file in the composer; the server stores it under a configurable root (`FILES_DIR`, default `files`) as `files/rooms/{room_id}/{file_id}.{ext}`. Images are previewed inline; every other type (CSV, PDF, Office documents, archives, …) is rendered as a download card, and clicking it opens the native save dialog in the desktop app. A file message's `content` is JSON carrying the file name, path, format, and SHA-256 hash, so the integrity of a download can be checked. A room file is served only to a user with access to the room, and non-images are sent as attachments rather than inline content.
+- **Batch sending** — `POST /messages/batch` stores several messages for one room in a single request, each optionally carrying an uploaded file.
+- **Profile photos** — uploaded photos are center-cropped, resized to 256×256, and re-encoded as a compressed JPEG under `files/users/{user_id}.jpg`. Every user's avatar is shown across the client — account menu, DM list, sidebar rail, chat header, new-conversation picker, mention dialog, and the `@` autocomplete — and a user without a photo falls back to their initials.
+- **Image cache** — downloaded images and file attachments are kept in a local cache with a user-chosen retention of 7, 15, or 30 days; the settings show usage against a soft ceiling and offer a manual clear, and expired entries are swept in the background at startup.
+- **Image preview** — clicking an image in a conversation opens it full-screen over a dark backdrop; clicking the backdrop or pressing Escape closes it.
 
 ---
 
@@ -89,7 +103,8 @@ The backend follows a **handler → service → repository** separation:
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
 | `POST` | `/users` | Register a new user | — |
-| `POST` | `/users/login` | Validate credentials and issue a JWT | — |
+| `POST` | `/users/login` | Validate credentials and issue an access/refresh pair | — |
+| `POST` | `/users/refresh` | Exchange a refresh token for a new access/refresh pair | — |
 | `GET` | `/users` | User directory, or one user with `?user_id=` | JWT |
 | `GET` | `/history` | Message history of a room (`?room_id=`) | JWT |
 | `GET` | `/users/online` | List currently connected users | JWT |
@@ -97,9 +112,14 @@ The backend follows a **handler → service → repository** separation:
 | `GET` | `/rooms` | List **public** channels only (DMs excluded) | JWT |
 | `POST` | `/rooms/dm` | Create a DM room (`receiver_id` in the body) | JWT |
 | `GET` | `/rooms/dm` | List the current user's DM rooms | JWT |
+| `POST` | `/messages/batch` | Store several messages for one room in one request | JWT |
+| `POST` | `/rooms/{room_id}/files` | Upload a room file (multipart `file`); images preview inline, other types download | JWT |
+| `GET` | `/files/rooms/{room_id}/{file_id}.{format}` | Serve a room file to a user with access to the room | JWT |
+| `POST` | `/users/me/photo` | Upload a profile photo (multipart `file`) | JWT |
+| `GET` | `/files/users/{user_id}.jpg` | Serve a profile photo to any signed-in user | JWT |
 | `GET` | `/chat` | Upgrade to a WebSocket connection | JWT |
 
-All endpoints except `POST /users` and `POST /users/login` require a valid JWT in the `Authorization: Bearer <token>` header.
+All endpoints except `POST /users`, `POST /users/login`, and `POST /users/refresh` require a valid JWT in the `Authorization: Bearer <token>` header.
 
 ### Examples
 
@@ -127,9 +147,23 @@ Content-Type: application/json
 
 ```json
 {
-  "token": "<jwt-token>",
+  "accessToken": "<access-token>",
+  "refreshToken": "<refresh-token>",
   "user": { "id": "1755000000000000000", "username": "alice", "name": "Alice", "role": "Developer" }
 }
+```
+
+**Refresh**
+
+```http
+POST /users/refresh
+Content-Type: application/json
+
+{ "refresh_token": "<refresh-token>" }
+```
+
+```json
+{ "accessToken": "<new-access-token>", "refreshToken": "<new-refresh-token>" }
 ```
 
 **Create a DM**
@@ -144,6 +178,54 @@ Content-Type: application/json
 
 ```json
 { "id": "1755000000000000000", "name": "1001-2002", "is_dm": true }
+```
+
+**Upload a room file**
+
+```http
+POST /rooms/1755000000000000000/files
+Authorization: Bearer <jwt-token>
+Content-Type: multipart/form-data; boundary=...
+
+file=<binary file>
+```
+
+```json
+{
+  "id": "1755000000000000001",
+  "file_name": "report.csv",
+  "path": "/files/rooms/1755000000000000000/1755000000000000001.csv",
+  "hash": "<sha256>",
+  "format": "csv"
+}
+```
+
+**Send a batch of messages**
+
+```http
+POST /messages/batch
+Authorization: Bearer <jwt-token>
+Content-Type: application/json
+
+{
+  "room_id": "1755000000000000000",
+  "messages": [
+    { "content": "look at this", "is_file": true, "file_id": "1755000000000000001" },
+    { "content": "and this one" }
+  ]
+}
+```
+
+A file message's `content` comes back to the client as JSON carrying the file name, the path, the format, and the hash:
+
+```json
+{
+  "room_id": "1755000000000000000",
+  "author": "1001",
+  "content": "{\"file_name\":\"report.csv\",\"path\":\"/files/rooms/1755000000000000000/1755000000000000001.csv\",\"hash\":\"<sha256>\",\"format\":\"csv\",\"message\":\"look at this\"}",
+  "is_file": true,
+  "sentAt": "2026-01-01T00:00:00Z"
+}
 ```
 
 ### WebSocket
@@ -167,6 +249,15 @@ The connection is rejected with `401` if the token is missing, invalid, expired,
 - **Direct messages**: delivered **only** to the other participant.
 - **Errors** (for example, posting to a DM you are not part of) come back as `{ "message": "..." }`.
 
+**Typing and presence frames** are tagged, so they are never mistaken for a message and are never stored:
+
+```json
+{ "type": "typing", "room_id": "<room_id>", "typing": true }
+{ "type": "status", "status": "online" }
+```
+
+A typing frame is relayed to the other participant of a DM or to every other client in a public room. A status frame (`online`, `away`, or `dnd`) is relayed to **every** other connected client, since availability is global. The server sends `offline` when a user's last connection closes, and a newly connected client receives a snapshot of the statuses already known.
+
 ---
 
 ## Getting started
@@ -180,7 +271,7 @@ The connection is rejected with `401` if the token is missing, invalid, expired,
 
 ### Backend
 
-1. Start the database (the schema is applied automatically on first boot):
+1. Start the database. The server applies the schema and the additive migrations itself on every startup, so an existing volume picks up a new table or column without being recreated:
 
    ```bash
    cd chat-backend
@@ -199,7 +290,13 @@ The connection is rejected with `401` if the token is missing, invalid, expired,
    JWT_SECRET=your-secure-secret-here
    ```
 
-4. Run the server:
+4. (Optional) Point uploads at a dedicated directory. If `FILES_DIR` is unset, files are written under `./files`:
+
+   ```
+   FILES_DIR=/var/lib/calling/files
+   ```
+
+5. Run the server:
 
    ```bash
    go run ./cmd/server
@@ -217,6 +314,8 @@ sqlc generate
 ```
 
 Generated code lands in `internal/database/sqlc` — do not edit it by hand.
+
+Additive changes for databases that already exist go in `db/migrations.sql`. Every statement there must be idempotent (`ADD COLUMN IF NOT EXISTS`), because the file runs on every startup alongside `db/schema.sql`.
 
 ### Desktop client
 
@@ -278,15 +377,17 @@ Calling/
 │       ├── chat/            # Manager (WebSocket), Service, Repository
 │       ├── container/       # Dependency injection container (dig)
 │       ├── database/        # pgx connection pool + generated sqlc code
+│       ├── files/           # Room-image and profile-photo upload/serve endpoints
 │       ├── httputil/        # Validation / JSON helpers
 │       ├── models/          # DTOs and domain models
+│       ├── storage/         # Configurable file root, on-disk layout, avatar processing
 │       └── user/            # Registration, credential validation, and lookup
 └── chat-frontend/
     ├── src/app/
-    │   ├── components/      # auth (login, register), chat, layout, settings
-    │   ├── guards/          # authGuard / guestGuard
-    │   ├── interceptors/    # 401 → clear session and redirect to login
-    │   └── services/        # API config, auth, rooms, conversations, users, theme, WebSocket, window
+    │   ├── components/      # auth (login, register), chat, dialog (new conversation, new room, mention), layout, settings
+    │   ├── guards/          # authGuard, guestGuard, startupGuard
+    │   ├── interceptors/    # 401 → refresh the token, or clear the session and redirect to login
+    │   └── services/        # API config, auth, files, image cache, rooms, conversations, users, mentions, notifications, startup, status, theme, WebSocket, window
     └── src-tauri/           # Rust shell, window config, capabilities
 ```
 
@@ -299,6 +400,9 @@ This is a POC. Deliberate gaps to be aware of before deploying anywhere real:
 - **Permissive CORS and WebSocket origin checks** — every origin is accepted. Fine for local/internal use, not production security.
 - **Default JWT secret** — without `JWT_SECRET` the server falls back to `dev-secret-change-me`.
 - **Session in `localStorage`** — storage is shared per origin, so a second login in another window replaces the first window's identity.
-- **No automated tests** — neither the Go module nor the frontend has a test suite yet.
+- **Refresh-token hardening is not implemented** — refresh rotation reuse detection, revocation, and secure storage are out of scope for now.
+- **Tests are limited** — the Go module only has unit tests for the file service (extension handling and download headers); the frontend has no test suite yet.
 - **IDs are `time.Now().UnixNano()` strings**, not database-generated UUIDs.
 - **Room creation is not transactional** — a room and its participants are written in two steps.
+- **Uploaded files are not garbage-collected** — a file whose message is never sent stays on disk, and deleting a message does not delete its file.
+- **The image cache is a soft ceiling** — the usage bar is drawn against a fixed 200 MB scale; the cache is not hard-capped.

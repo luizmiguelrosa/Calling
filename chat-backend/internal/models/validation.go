@@ -15,3 +15,15 @@ func (c CreateRoomInput) Validate() error {
 func (d CreateDMInput) Validate() error {
 	return validate.Struct(d)
 }
+
+func (t TypingEvent) Validate() error {
+	return validate.Struct(t)
+}
+
+func (s StatusEvent) Validate() error {
+	return validate.Struct(s)
+}
+
+func (b BatchSendInput) Validate() error {
+	return validate.Struct(b)
+}

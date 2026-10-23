@@ -26,6 +26,17 @@ export class ApiService {
     });
   }
 
+  /**
+   * Multipart POST. The Content-Type is deliberately left unset so the browser
+   * writes it with the boundary it generated; setting it by hand would drop the
+   * boundary and the server could not parse the parts.
+   */
+  postForm<T>(endpoint: string, body: FormData): Observable<T> {
+    return this.http.post<T>(`${this.config.apiUrl()}${endpoint}`, body, {
+      headers: this.authService.getAuthHeaders(),
+    });
+  }
+
   put<T>(endpoint: string, id: string, body: any, params?: any): Observable<T> {
     return this.http.put<T>(`${this.config.apiUrl()}${endpoint}/${id}`, body, {
       headers: this.authService.getAuthHeaders(),

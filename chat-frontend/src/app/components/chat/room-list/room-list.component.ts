@@ -12,6 +12,8 @@ import { ZardDialogRef } from '@/shared/components/dialog/dialog-ref';
 import { ZardEmptyComponent } from '@/shared/components/empty/empty.component';
 import { ZardSkeletonComponent } from '@/shared/components/skeleton/skeleton.component';
 
+import { MentionService } from '@/services/mention.service';
+import { NotificationService } from '@/services/notification.service';
 import { RoomNavigationService } from '@/services/room-navigation.service';
 import { RoomService } from '@/services/room.service';
 
@@ -73,6 +75,27 @@ import { RoomService } from '@/services/room.service';
                     class="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-accent-foreground"
                   />
                   <span class="truncate">{{ room.name }}</span>
+
+                  <span class="ml-auto flex shrink-0 items-center gap-1">
+                    @if (mentions.unreadFor(room.id); as mentionCount) {
+                      <span
+                        class="flex h-5 min-w-5 items-center justify-center rounded-full bg-mention px-1.5 text-xs font-semibold text-mention-foreground"
+                        [attr.aria-label]="mentionCount + ' menções não lidas'"
+                        title="Você foi mencionado"
+                      >
+                        &#64;
+                      </span>
+                    }
+
+                    @if (notifications.unreadFor(room.id); as unread) {
+                      <span
+                        class="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground tabular-nums"
+                        [attr.aria-label]="unread + ' mensagens não lidas'"
+                      >
+                        {{ unread }}
+                      </span>
+                    }
+                  </span>
                 </button>
               </li>
             }
@@ -93,6 +116,9 @@ export class RoomListComponent {
   private readonly roomNavigation = inject(RoomNavigationService);
   private readonly router = inject(Router);
   private readonly dialogService = inject(ZardDialogService);
+
+  protected readonly notifications = inject(NotificationService);
+  protected readonly mentions = inject(MentionService);
 
   protected readonly skeletonRows = [1, 2, 3, 4];
 

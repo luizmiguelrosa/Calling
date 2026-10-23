@@ -11,8 +11,8 @@ import (
 )
 
 type Repository interface {
-	SaveMessage(ctx context.Context, msg *models.MessageBroadcast) error
-	GetHistory(ctx context.Context, roomID string) ([]*models.MessageBroadcast, error)
+	SaveMessage(ctx context.Context, msg *models.StoredMessage) error
+	GetHistory(ctx context.Context, roomID string) ([]*models.StoredMessage, error)
 	GetRoomMetadata(ctx context.Context, roomID string) (roomName string, isDM bool, exists bool, err error)
 	RoomExistsByName(ctx context.Context, roomName string) (bool, error)
 	CreateChannel(ctx context.Context, roomID string, roomName string, isDM bool, participants ...string) error
@@ -32,27 +32,29 @@ func NewRepository(pool *pgxpool.Pool) Repository {
 	}
 }
 
-func (r *postgresRepository) SaveMessage(ctx context.Context, msg *models.MessageBroadcast) error {
+func (r *postgresRepository) SaveMessage(ctx context.Context, msg *models.StoredMessage) error {
 	return r.q.SaveMessage(ctx, sqlc.SaveMessageParams{
 		RoomID:   msg.RoomID,
 		Author:   msg.Author,
 		Content:  msg.Content,
+		IsFile:   msg.IsFile,
 		SendedAt: msg.SentAt,
 	})
 }
 
-func (r *postgresRepository) GetHistory(ctx context.Context, roomID string) ([]*models.MessageBroadcast, error) {
+func (r *postgresRepository) GetHistory(ctx context.Context, roomID string) ([]*models.StoredMessage, error) {
 	rows, err := r.q.GetHistory(ctx, roomID)
 	if err != nil {
 		return nil, err
 	}
 
-	messages := make([]*models.MessageBroadcast, 0, len(rows))
+	messages := make([]*models.StoredMessage, 0, len(rows))
 	for _, row := range rows {
-		messages = append(messages, &models.MessageBroadcast{
+		messages = append(messages, &models.StoredMessage{
 			RoomID:  row.RoomID,
 			Author:  row.Author,
 			Content: row.Content,
+			IsFile:  row.IsFile,
 			SentAt:  row.SendedAt,
 		})
 	}

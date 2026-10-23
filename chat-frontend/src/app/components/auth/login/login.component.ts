@@ -119,7 +119,7 @@ export class LoginComponent {
     try {
       const response = await firstValueFrom(this.authService.login(username, password));
 
-      if (!response?.token) {
+      if (!response?.accessToken) {
         this.error.set('O servidor não devolveu um token.');
         return;
       }

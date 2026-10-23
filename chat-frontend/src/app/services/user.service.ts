@@ -14,6 +14,12 @@ export class UserService {
   readonly users = signal<UserResponse[]>([]);
   /** User IDs with a live WebSocket, per GET /users/online. */
   readonly onlineIds = signal<ReadonlySet<string>>(new Set());
+  /**
+   * Availability announced over the socket, keyed by user id. It is the live
+   * counterpart of `onlineIds`: the directory list is a snapshot, while this is
+   * pushed whenever a peer changes status or disconnects.
+   */
+  readonly statuses = signal<Record<string, PresenceStatus>>({});
   private loaded = false;
 
   getUsers(): Observable<UserResponse[]> {
@@ -40,6 +46,16 @@ export class UserService {
   }
 
   /**
+   * Resolves a mention token to a user. Usernames are matched case-insensitively
+   * because a mention is typed by hand and the directory is the authority on the
+   * stored casing.
+   */
+  findByUsername(username: string): UserResponse | undefined {
+    const target = username.toLowerCase();
+    return this.users().find(u => u.username.toLowerCase() === target);
+  }
+
+  /**
    * Presence is a snapshot of who happens to be connected right now, so it goes
    * stale on its own — refresh it when the view that shows it is opened.
    */
@@ -52,5 +68,39 @@ export class UserService {
 
   isOnline(userId: string): boolean {
     return this.onlineIds().has(userId);
+  }
+
+  /** Records a presence frame relayed over the socket. */
+  setStatus(userId: string, status: PresenceStatus): void {
+    this.statuses.update(current => ({ ...current, [userId]: status }));
+  }
+
+  /** Drops every announced status; the reconnect's snapshot repopulates them. */
+  clearStatuses(): void {
+    this.statuses.set({});
+  }
+
+  /** The announced status, or null when the user is offline or unknown. */
+  statusOf(userId: string): UserStatus | null {
+    const status = this.statuses()[userId];
+    return status === 'online' || status === 'away' || status === 'dnd' ? status : null;
+  }
+
+  /**
+   * The presence dot for a user: its class and label, or null when there is no
+   * dot to show. The announced status wins; the online list is the fallback for
+   * a user whose status has not arrived yet.
+   */
+  presence(userId: string): { class: string; label: string } | null {
+    switch (this.statusOf(userId)) {
+      case 'away':
+        return { class: 'bg-away', label: 'Ausente' };
+      case 'dnd':
+        return { class: 'bg-destructive', label: 'Não perturbe' };
+      case 'online':
+        return { class: 'bg-online', label: 'Online' };
+      default:
+        return this.isOnline(userId) ? { class: 'bg-online', label: 'Online' } : null;
+    }
   }
 }

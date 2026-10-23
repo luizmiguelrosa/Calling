@@ -99,6 +99,18 @@ export class ApiConfigService {
     return this.apiUrl().replace(/^http/, 'ws');
   }
 
+  /**
+   * Resolves a server-relative path (an attachment URL) against the active
+   * backend address. An absolute URL is returned untouched, so a message stored
+   * by an older build that baked in a host still renders.
+   */
+  absoluteUrl(path: string): string {
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(path)) {
+      return path;
+    }
+    return `${this.apiUrl()}${path.startsWith('/') ? '' : '/'}${path}`;
+  }
+
   private apply(value: string, origin: ApiUrlSource): void {
     this.url.set(value);
     this.origin.set(origin);

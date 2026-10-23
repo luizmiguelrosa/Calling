@@ -2,18 +2,21 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { Router } from '@angular/router';
 
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideLogOut, lucideMenu, lucideSettings } from '@ng-icons/lucide';
+import { lucideCheck, lucideLogOut, lucideMenu, lucideSettings } from '@ng-icons/lucide';
 
 import { ZardAvatarComponent } from '@/shared/components/avatar/avatar.component';
 import { ZardButtonComponent } from '@/shared/components/button';
 import { ZardDialogService } from '@/shared/components/dialog/dialog.service';
 import { ZardPopoverImports } from '@/shared/components/popover/popover.imports';
+import { ZardSeparatorComponent } from '@/shared/components/separator';
 import { ZardSidebarService } from '@/shared/components/sidebar/sidebar.service';
 import { initials } from '@/shared/utils/initials';
 
 import { SettingsDialogComponent } from '@/components/settings/settings-dialog/settings-dialog.component';
+import { UserAvatarComponent } from '@/components/shared/user-avatar/user-avatar.component';
 
 import { AuthService } from '@/services/auth.service';
+import { StatusService } from '@/services/status.service';
 import { WebSocketService } from '@/services/websocket.service';
 
 /**
@@ -23,7 +26,7 @@ import { WebSocketService } from '@/services/websocket.service';
  */
 @Component({
   selector: 'app-layout-header',
-  imports: [NgIcon, ZardAvatarComponent, ZardButtonComponent, ...ZardPopoverImports],
+  imports: [NgIcon, ZardAvatarComponent, ZardButtonComponent, ZardSeparatorComponent, UserAvatarComponent, ...ZardPopoverImports],
   host: {
     class: 'block shrink-0',
   },
@@ -69,7 +72,21 @@ import { WebSocketService } from '@/services/websocket.service';
         class="ml-auto flex items-center gap-2 rounded-full py-1 pr-3 pl-1 transition-colors hover:bg-accent hover:text-accent-foreground"
         aria-label="Conta"
       >
-        <z-avatar zSize="sm" [zFallback]="initials()" />
+        <!-- The status dot pins to the avatar's corner so it reads as a property
+             of the person, not of the row. -->
+        <span class="relative shrink-0">
+          @if (user(); as account) {
+            <app-user-avatar [userId]="account.id" [name]="account.name" [username]="account.username" />
+          } @else {
+            <z-avatar zSize="sm" [zFallback]="initials()" />
+          }
+          <span
+            class="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-background"
+            [class]="statusDotClass()"
+            role="img"
+            [attr.aria-label]="statusLabel()"
+          ></span>
+        </span>
         <span class="max-w-40 truncate text-sm font-medium">{{ displayName() }}</span>
       </button>
 
@@ -80,12 +97,33 @@ import { WebSocketService } from '@/services/websocket.service';
             <span z-popover-description class="truncate">{{ username() }}</span>
           </div>
 
-          <button z-button zType="ghost" class="w-full justify-start gap-2" (click)="openSettings()">
-                      <ng-icon name="lucideSettings" />
-                      Configurações
-                    </button>
+          <div class="flex flex-col gap-0.5">
+            <span class="px-2 text-xs font-medium text-muted-foreground">Status</span>
 
-                    <button z-button zType="ghost" class="w-full justify-start gap-2" (click)="logout()">
+            @for (option of statusOptions; track option.value) {
+              <button
+                z-button
+                zType="ghost"
+                class="w-full justify-start gap-2"
+                (click)="setStatus(option.value)"
+              >
+                <span class="size-2 shrink-0 rounded-full" [class]="option.dotClass"></span>
+                <span class="truncate">{{ option.label }}</span>
+                @if (statusService.status() === option.value) {
+                  <ng-icon name="lucideCheck" class="ml-auto" />
+                }
+              </button>
+            }
+          </div>
+
+          <z-separator />
+
+          <button z-button zType="ghost" class="w-full justify-start gap-2" (click)="openSettings()">
+            <ng-icon name="lucideSettings" />
+            Configurações
+          </button>
+
+          <button z-button zType="ghost" class="w-full justify-start gap-2" (click)="logout()">
             <ng-icon name="lucideLogOut" />
             Sair
           </button>
@@ -94,7 +132,7 @@ import { WebSocketService } from '@/services/websocket.service';
     </header>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  viewProviders: [provideIcons({ lucideMenu, lucideLogOut, lucideSettings })],
+  viewProviders: [provideIcons({ lucideMenu, lucideLogOut, lucideSettings, lucideCheck })],
 })
 export class HeaderComponent {
   private readonly sidebar = inject(ZardSidebarService);
@@ -103,9 +141,18 @@ export class HeaderComponent {
   private readonly dialogService = inject(ZardDialogService);
   private readonly router = inject(Router);
 
+  protected readonly statusService = inject(StatusService);
+
+  /** The three availability states offered by the account menu. */
+  protected readonly statusOptions: readonly { value: UserStatus; label: string; dotClass: string }[] = [
+    { value: 'online', label: 'Online', dotClass: 'bg-online' },
+    { value: 'away', label: 'Ausente', dotClass: 'bg-away' },
+    { value: 'dnd', label: 'Não perturbe', dotClass: 'bg-destructive' },
+  ];
+
   // Read once: the guard guarantees a session before this component is created,
   // and a reload is the only thing that changes the identity mid-session.
-  private readonly user = signal<UserResponse | null>(this.authService.getCurrentUser());
+  protected readonly user = signal<UserResponse | null>(this.authService.getCurrentUser());
 
   protected readonly displayName = computed(() => {
     const user = this.user();
@@ -115,6 +162,15 @@ export class HeaderComponent {
   protected readonly username = computed(() => this.user()?.username ?? '');
 
   protected readonly initials = computed(() => initials(this.displayName()));
+
+  /** The colour of the dot on the avatar, matching the current status. */
+  protected readonly statusDotClass = computed(
+    () => this.statusOptions.find(option => option.value === this.statusService.status())?.dotClass ?? 'bg-online',
+  );
+
+  protected readonly statusLabel = computed(
+    () => this.statusOptions.find(option => option.value === this.statusService.status())?.label ?? 'Online',
+  );
 
   /**
    * `connected` alone cannot tell "the server just went away" from "the first
@@ -130,6 +186,10 @@ export class HeaderComponent {
 
   protected toggleSidebar(): void {
     this.sidebar.toggleSidebar();
+  }
+
+  protected setStatus(status: UserStatus): void {
+    this.statusService.setStatus(status);
   }
 
   protected openSettings(): void {

@@ -3,6 +3,7 @@ package main
 import (
 	"chat-backend/internal/chat"
 	"chat-backend/internal/container"
+	"chat-backend/internal/files"
 	"chat-backend/internal/user"
 	"context"
 	"log"
@@ -29,10 +30,16 @@ func main() {
 	ctx := context.Background()
 	depsContainer := container.BuildContainer(ctx)
 
-	err := depsContainer.Invoke(func(managerChat *chat.Manager, userHandler *user.Handler, authMiddleware func(http.Handler) http.Handler) {
+	err := depsContainer.Invoke(func(
+		managerChat *chat.Manager,
+		userHandler *user.Handler,
+		filesHandler *files.Handler,
+		authMiddleware func(http.Handler) http.Handler,
+	) {
 		// Public routes
 		r.Post("/users", userHandler.Register)
 		r.Post("/users/login", userHandler.Login)
+		r.Post("/users/refresh", userHandler.Refresh)
 
 		// Protected routes (require valid JWT)
 		r.Group(func(r chi.Router) {
@@ -45,6 +52,19 @@ func main() {
 			r.Post("/rooms/dm", managerChat.CreateDM)
 			r.Get("/rooms/dm", managerChat.ListUserDMs)
 			r.Get("/chat", managerChat.ManageConnection)
+
+			// Batch message sending.
+			r.Post("/messages/batch", managerChat.SendBatchMessages)
+
+			// Room images: upload into the room's directory, download under an
+			// access check that only lets participants of the room through.
+			r.Post("/rooms/{room_id}/files", filesHandler.UploadRoomFile)
+			r.Get("/files/rooms/{room_id}/{file}", filesHandler.ServeRoomFile)
+
+			// Profile photos: converted to a fixed-size JPEG on upload, readable
+			// by any signed-in user.
+			r.Post("/users/me/photo", filesHandler.UploadProfilePhoto)
+			r.Get("/files/users/{file}", filesHandler.ServeProfilePhoto)
 		})
 	})
 

@@ -1,6 +1,7 @@
 import { Routes } from "@angular/router";
 
 import { authGuard, guestGuard } from "./guards/auth.guard";
+import { startupGuard } from "./guards/startup.guard";
 
 // Every component is standalone, so each route is a dynamic import. The guards
 // stay eager: they are a few lines, and they have to run before the lazy chunk
@@ -33,7 +34,7 @@ export const routes: Routes = [
   },
   {
     path: 'chat',
-    canActivate: [authGuard],
+    canActivate: [authGuard, startupGuard],
     loadComponent: () => import('./components/chat/chat.component').then(m => m.ChatComponent),
     children: [
       { path: '', pathMatch: 'full', redirectTo: 'rooms' },

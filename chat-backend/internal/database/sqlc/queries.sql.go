@@ -25,6 +25,36 @@ func (q *Queries) AddRoomParticipant(ctx context.Context, arg AddRoomParticipant
 	return err
 }
 
+const createFile = `-- name: CreateFile :exec
+INSERT INTO files (id, room_id, uploader, file_name, path, hash, format, size_bytes)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+`
+
+type CreateFileParams struct {
+	ID        string `json:"id"`
+	RoomID    string `json:"room_id"`
+	Uploader  string `json:"uploader"`
+	FileName  string `json:"file_name"`
+	Path      string `json:"path"`
+	Hash      string `json:"hash"`
+	Format    string `json:"format"`
+	SizeBytes int64  `json:"size_bytes"`
+}
+
+func (q *Queries) CreateFile(ctx context.Context, arg CreateFileParams) error {
+	_, err := q.db.Exec(ctx, createFile,
+		arg.ID,
+		arg.RoomID,
+		arg.Uploader,
+		arg.FileName,
+		arg.Path,
+		arg.Hash,
+		arg.Format,
+		arg.SizeBytes,
+	)
+	return err
+}
+
 const createRoom = `-- name: CreateRoom :exec
 INSERT INTO rooms (id, name, is_dm)
 VALUES ($1, $2, $3)
@@ -92,8 +122,31 @@ func (q *Queries) GetDMParticipants(ctx context.Context, roomID string) ([]strin
 	return items, nil
 }
 
+const getFile = `-- name: GetFile :one
+SELECT id, room_id, uploader, file_name, path, hash, format, size_bytes, created_at
+FROM files
+WHERE id = $1
+`
+
+func (q *Queries) GetFile(ctx context.Context, id string) (File, error) {
+	row := q.db.QueryRow(ctx, getFile, id)
+	var i File
+	err := row.Scan(
+		&i.ID,
+		&i.RoomID,
+		&i.Uploader,
+		&i.FileName,
+		&i.Path,
+		&i.Hash,
+		&i.Format,
+		&i.SizeBytes,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getHistory = `-- name: GetHistory :many
-SELECT room_id, author, content, sended_at
+SELECT room_id, author, content, is_file, sended_at
 FROM messages
 WHERE room_id = $1
 ORDER BY sended_at, id
@@ -103,6 +156,7 @@ type GetHistoryRow struct {
 	RoomID   string    `json:"room_id"`
 	Author   string    `json:"author"`
 	Content  string    `json:"content"`
+	IsFile   bool      `json:"is_file"`
 	SendedAt time.Time `json:"sended_at"`
 }
 
@@ -119,6 +173,7 @@ func (q *Queries) GetHistory(ctx context.Context, roomID string) ([]GetHistoryRo
 			&i.RoomID,
 			&i.Author,
 			&i.Content,
+			&i.IsFile,
 			&i.SendedAt,
 		); err != nil {
 			return nil, err
@@ -341,14 +396,15 @@ func (q *Queries) RoomExistsByName(ctx context.Context, name string) (bool, erro
 }
 
 const saveMessage = `-- name: SaveMessage :exec
-INSERT INTO messages (room_id, author, content, sended_at)
-VALUES ($1, $2, $3, $4)
+INSERT INTO messages (room_id, author, content, is_file, sended_at)
+VALUES ($1, $2, $3, $4, $5)
 `
 
 type SaveMessageParams struct {
 	RoomID   string    `json:"room_id"`
 	Author   string    `json:"author"`
 	Content  string    `json:"content"`
+	IsFile   bool      `json:"is_file"`
 	SendedAt time.Time `json:"sended_at"`
 }
 
@@ -357,6 +413,7 @@ func (q *Queries) SaveMessage(ctx context.Context, arg SaveMessageParams) error 
 		arg.RoomID,
 		arg.Author,
 		arg.Content,
+		arg.IsFile,
 		arg.SendedAt,
 	)
 	return err

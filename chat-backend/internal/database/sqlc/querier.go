@@ -10,9 +10,11 @@ import (
 
 type Querier interface {
 	AddRoomParticipant(ctx context.Context, arg AddRoomParticipantParams) error
+	CreateFile(ctx context.Context, arg CreateFileParams) error
 	CreateRoom(ctx context.Context, arg CreateRoomParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
 	GetDMParticipants(ctx context.Context, roomID string) ([]string, error)
+	GetFile(ctx context.Context, id string) (File, error)
 	GetHistory(ctx context.Context, roomID string) ([]GetHistoryRow, error)
 	GetRoomMetadata(ctx context.Context, id string) (GetRoomMetadataRow, error)
 	GetUserByID(ctx context.Context, id string) (User, error)

@@ -33,4 +33,18 @@ export class RoomService {
       `/history?room_id=${roomId}`
     );
   }
+
+  /**
+   * Sends several messages in one request. Each entry may reference a file
+   * uploaded beforehand through the room's file endpoint.
+   */
+  sendBatch(
+    roomId: string,
+    messages: BatchMessageInput[]
+  ): Observable<MessageBroadcast[]> {
+    return this.api.post<MessageBroadcast[]>('/messages/batch', {
+      room_id: roomId,
+      messages,
+    });
+  }
 }

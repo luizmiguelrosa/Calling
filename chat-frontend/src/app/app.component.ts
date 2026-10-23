@@ -7,6 +7,7 @@ import { filter } from 'rxjs';
 import { StartupLoadingComponent } from './components/layout/startup-loading/startup-loading.component';
 import { TitleBarComponent } from './components/layout/titlebar/titlebar.component';
 import { AuthService } from './services/auth.service';
+import { StartupService } from './services/startup.service';
 import { UserService } from './services/user.service';
 import { WebSocketService } from './services/websocket.service';
 import { WindowService } from './services/window.service';
@@ -40,6 +41,7 @@ export class AppComponent {
   private readonly authService = inject(AuthService);
   private readonly socket = inject(WebSocketService);
   private readonly userService = inject(UserService);
+  private readonly startup = inject(StartupService);
 
   /**
    * The native title bar is disabled in `tauri.conf.json`, so the custom one is
@@ -75,6 +77,7 @@ export class AppComponent {
         // The socket is app-scoped, not per route, so it is opened once here for
         // a session restored from storage. Logging in opens it too.
         if (this.authService.isAuthenticated()) {
+          this.startup.rememberRoute(event.urlAfterRedirects);
           this.socket.connect();
           this.userService.loadOnline();
         } else {

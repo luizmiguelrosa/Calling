@@ -70,11 +70,20 @@ WHERE room_id = $1
 ORDER BY user_id;
 
 -- name: SaveMessage :exec
-INSERT INTO messages (room_id, author, content, sended_at)
-VALUES ($1, $2, $3, $4);
+INSERT INTO messages (room_id, author, content, is_file, sended_at)
+VALUES ($1, $2, $3, $4, $5);
 
 -- name: GetHistory :many
-SELECT room_id, author, content, sended_at
+SELECT room_id, author, content, is_file, sended_at
 FROM messages
 WHERE room_id = $1
 ORDER BY sended_at, id;
+
+-- name: CreateFile :exec
+INSERT INTO files (id, room_id, uploader, file_name, path, hash, format, size_bytes)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+
+-- name: GetFile :one
+SELECT id, room_id, uploader, file_name, path, hash, format, size_bytes, created_at
+FROM files
+WHERE id = $1;

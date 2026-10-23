@@ -47,12 +47,26 @@ func (l LoginRequest) Validate() error {
 	return validate.Struct(l)
 }
 
+type TokenPair struct {
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
+}
+
 type LoginResponse struct {
-	Token string `json:"token"`
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
 	// The client keeps the signed-in identity to hide the current user from
 	// pickers; decoding the JWT for it would mean trusting a parse of a token
 	// the server already has the answers for.
 	User UserResponse `json:"user"`
+}
+
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token" validate:"required"`
+}
+
+func (r RefreshRequest) Validate() error {
+	return validate.Struct(r)
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +88,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := auth.GenerateToken(h.authSecret, u.ID, u.Username)
+	accessToken, refreshToken, err := auth.GenerateTokenPair(h.authSecret, u.ID, u.Username)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"message": "failed to generate token"})
@@ -83,7 +97,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(LoginResponse{
-		Token: token,
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
 		User: UserResponse{
 			ID:       u.ID,
 			Username: u.Username,
@@ -91,6 +106,46 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			Role:     u.Role,
 		},
 	})
+}
+
+// Refresh exchanges a valid refresh token for a fresh access/refresh pair. It is
+// public because the access token it replaces is expected to be expired.
+func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
+	input, valid := httputil.ReadAndValidate[RefreshRequest](w, r)
+	if !valid {
+		return
+	}
+
+	claims, err := auth.ParseToken(h.authSecret, input.RefreshToken)
+	if err != nil || claims.TokenType != auth.TokenTypeRefresh {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"message": "invalid or expired refresh token"})
+		return
+	}
+
+	// A refresh token outlives the account it was issued for; refuse to mint a
+	// new pair once the user is gone.
+	exists, err := h.service.ExistsByID(r.Context(), claims.UserID)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"message": err.Error()})
+		return
+	}
+	if !exists {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"message": "invalid or expired refresh token"})
+		return
+	}
+
+	accessToken, refreshToken, err := auth.GenerateTokenPair(h.authSecret, claims.UserID, claims.Username)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"message": "failed to generate token"})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(TokenPair{AccessToken: accessToken, RefreshToken: refreshToken})
 }
 
 // GetUser serves both shapes of GET /users: with `user_id` it returns that one

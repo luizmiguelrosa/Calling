@@ -18,8 +18,12 @@ interface LoginRequest {
   password: string;
 }
 
-interface LoginResponse {
-  token: string;
+interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+}
+
+interface LoginResponse extends TokenPair {
   user: UserResponse;
 }
 
@@ -28,4 +32,17 @@ interface UserResponse {
   username: string;
   name: string;
   role: "Developer" | "Admin";
+}
+
+/** The availability a user can set for themselves. */
+type UserStatus = 'online' | 'away' | 'dnd';
+
+/** A user's availability as others see it; `offline` is server-sent on disconnect. */
+type PresenceStatus = UserStatus | 'offline';
+
+/** A presence frame relayed over the chat socket. */
+interface StatusBroadcast {
+  type: 'status';
+  author: string;
+  status: PresenceStatus;
 }

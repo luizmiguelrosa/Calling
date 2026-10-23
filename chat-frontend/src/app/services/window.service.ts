@@ -2,7 +2,7 @@ import { Injectable, signal } from '@angular/core';
 
 import { isTauri } from '@tauri-apps/api/core';
 import { LogicalSize } from '@tauri-apps/api/dpi';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { UserAttentionType, getCurrentWindow } from '@tauri-apps/api/window';
 
 type WindowSize = { width: number; height: number };
 
@@ -90,6 +90,45 @@ export class WindowService {
 
   async close(): Promise<void> {
     await this.run(() => this.appWindow!.close());
+  }
+
+  /**
+   * Brings the window back in front, restoring it first when it is minimized.
+   * Used when the user acts on a native notification, which is the only way to
+   * reach the app while it is out of sight.
+   */
+  async focus(): Promise<void> {
+    await this.run(async () => {
+      const appWindow = this.appWindow!;
+
+      if (await appWindow.isMinimized()) {
+        await appWindow.unminimize();
+      }
+
+      await appWindow.setFocus();
+    });
+  }
+
+  /**
+   * Flashes the taskbar button so a message that arrived while the window was
+   * in the background is noticed. `Critical` is what produces the native yellow
+   * blink on Windows; it keeps flashing until the window is focused, which is
+   * the point — the user is being asked to come back.
+   */
+  async requestAttention(): Promise<void> {
+    await this.run(async () => {
+      const appWindow = this.appWindow!;
+
+      // A focused, visible window is left alone: the message is already on
+      // screen, and a blink would only be noise. A minimized window is checked
+      // explicitly: it must still flash even if the OS reports it as focused,
+      // which is what made the blink appear only while the app was open.
+      if ((await appWindow.isFocused()) && !(await appWindow.isMinimized())) {
+        return;
+      }
+
+      await appWindow.requestUserAttention(UserAttentionType.Critical);
+    });
   }
 
   private async applyAppSize(): Promise<void> {

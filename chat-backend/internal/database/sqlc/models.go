@@ -8,11 +8,24 @@ import (
 	"time"
 )
 
+type File struct {
+	ID        string    `json:"id"`
+	RoomID    string    `json:"room_id"`
+	Uploader  string    `json:"uploader"`
+	FileName  string    `json:"file_name"`
+	Path      string    `json:"path"`
+	Hash      string    `json:"hash"`
+	Format    string    `json:"format"`
+	SizeBytes int64     `json:"size_bytes"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Message struct {
 	ID       int64     `json:"id"`
 	RoomID   string    `json:"room_id"`
 	Author   string    `json:"author"`
 	Content  string    `json:"content"`
+	IsFile   bool      `json:"is_file"`
 	SendedAt time.Time `json:"sended_at"`
 }
 

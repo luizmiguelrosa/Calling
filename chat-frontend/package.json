@@ -1,6 +1,6 @@
 {
   "name": "calling",
-  "version": "1.0.3",
+  "version": "1.2.0",
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
@@ -21,6 +21,9 @@
     "@ng-icons/core": "^36.0.0",
     "@ng-icons/lucide": "^36.0.0",
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.8.3",
+    "@tauri-apps/plugin-fs": "^2.7.1",
+    "@tauri-apps/plugin-notification": "^2.7.0",
     "@tauri-apps/plugin-opener": "^2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -1,2 +1,6 @@
 .env
 node_modules/
+
+# Runtime uploads. The server writes them under FILES_DIR (default ./files);
+# they are user data, not source.
+chat-backend/files/

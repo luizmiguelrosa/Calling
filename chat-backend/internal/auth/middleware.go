@@ -4,8 +4,6 @@ import (
 	"context"
 	"net/http"
 	"strings"
-
-	"github.com/golang-jwt/jwt/v5"
 )
 
 type contextKey string
@@ -15,6 +13,10 @@ const userIDKey contextKey = "userID"
 // Middleware validates the JWT from the Authorization header and stores the
 // user ID in the request context. Requests without a valid token receive a
 // 401 Unauthorized response.
+//
+// Only access tokens are accepted: a refresh token is signed with the same
+// secret, so without the token-type check it could be replayed as an access
+// token and outlive the short access TTL.
 //
 // A browser WebSocket handshake cannot set request headers, so an upgrade is
 // also allowed to pass the token as a `?token=` query parameter. That is
@@ -30,19 +32,10 @@ func Middleware(secret []byte) func(http.Handler) http.Handler {
 				return
 			}
 
-			token, err := jwt.ParseWithClaims(rawToken, &Claims{}, func(token *jwt.Token) (any, error) {
-				return secret, nil
-			})
-			if err != nil || !token.Valid {
+			claims, err := ParseToken(secret, rawToken)
+			if err != nil || claims.TokenType != TokenTypeAccess {
 				w.WriteHeader(http.StatusUnauthorized)
 				w.Write([]byte(`{"message":"invalid or expired token"}`))
-				return
-			}
-
-			claims, ok := token.Claims.(*Claims)
-			if !ok {
-				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte(`{"message":"invalid token claims"}`))
 				return
 			}
 

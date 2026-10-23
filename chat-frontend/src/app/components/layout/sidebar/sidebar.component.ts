@@ -6,12 +6,14 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideHouse, lucideMessageSquarePlus } from '@ng-icons/lucide';
 import { filter, map } from 'rxjs';
 
-import { ZardAvatarComponent } from '@/shared/components/avatar/avatar.component';
 import { ZardDialogService } from '@/shared/components/dialog/dialog.service';
 import { ZardSidebarImports } from '@/shared/components/sidebar/sidebar.imports';
-import { initials as toInitials } from '@/shared/utils/initials';
+
+import { UserAvatarComponent } from '@/components/shared/user-avatar/user-avatar.component';
 
 import { ConversationService } from '@/services/conversation.service';
+import { MentionService } from '@/services/mention.service';
+import { NotificationService } from '@/services/notification.service';
 import { RoomNavigationService } from '@/services/room-navigation.service';
 import { UserService } from '@/services/user.service';
 
@@ -23,7 +25,7 @@ import { UserService } from '@/services/user.service';
  */
 @Component({
   selector: 'app-layout-sidebar',
-  imports: [ZardSidebarImports, ZardAvatarComponent, NgIcon, RouterLink],
+  imports: [ZardSidebarImports, UserAvatarComponent, NgIcon, RouterLink],
   // Explicit host box: without a definite height the panel's `h-full` resolves
   // against an auto-height ancestor and collapses to nothing.
   host: {
@@ -92,21 +94,64 @@ import { UserService } from '@/services/user.service';
                          end: at the row end it reads as a row property, and it would
                          survive the collapse as a stray dot on the icon rail. -->
                     <span class="relative shrink-0">
-                      <z-avatar
-                        class="group-data-[collapsible=icon]:size-4!"
-                        zSize="sm"
-                        [zFallback]="initials(dm.other_name || dm.other_username)"
+                      <app-user-avatar
+                        zClass="group-data-[collapsible=icon]:size-4!"
+                        [userId]="dm.other_user_id"
+                        [name]="dm.other_name"
+                        [username]="dm.other_username"
                       />
-                      @if (isOnline(dm.other_user_id)) {
+                      @if (presence(dm.other_user_id); as p) {
                         <span
-                          class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-online ring-2 ring-background group-data-[collapsible=icon]:size-1.5"
+                          class="absolute -top-0.5 -right-0.5 size-2 rounded-full ring-2 ring-background group-data-[collapsible=icon]:size-1.5"
+                          [class]="p.class"
                           role="img"
-                          aria-label="Online"
+                          [attr.aria-label]="p.label"
+                        ></span>
+                      }
+                      <!-- The count badge is hidden on the collapsed rail, so an
+                           unread dot takes over there and the signal survives
+                           the collapse. A mention outranks the plain unread
+                           count: it is the more specific reason to look. -->
+                      @if (mentions.unreadFor(dm.id); as mentionCount) {
+                        <span
+                          class="absolute -bottom-0.5 -left-0.5 hidden size-2 rounded-full bg-mention ring-2 ring-background group-data-[collapsible=icon]:block group-data-[collapsible=icon]:size-1.5"
+                          role="img"
+                          [attr.aria-label]="mentionCount + ' menções não lidas'"
+                        ></span>
+                      } @else if (notifications.unreadFor(dm.id); as unread) {
+                        <span
+                          class="absolute -bottom-0.5 -left-0.5 hidden size-2 rounded-full bg-primary ring-2 ring-background group-data-[collapsible=icon]:block group-data-[collapsible=icon]:size-1.5"
+                          role="img"
+                          [attr.aria-label]="unread + ' mensagens não lidas'"
                         ></span>
                       }
                     </span>
                     <span>{{ dm.other_username }}</span>
                   </a>
+
+                  <!-- Sibling of the button, not a child: the badge's variants
+                       read the button's peer state, and the button truncates its
+                       own last child. The hover text colour is pinned back to the
+                       badge's own so the number never blends into the circle.
+                       Only one badge fits at right-1, so a mention replaces
+                       the unread count rather than stacking on it. -->
+                  @if (mentions.unreadFor(dm.id); as mentionCount) {
+                    <span
+                      z-sidebar-menu-badge
+                      class="rounded-full bg-mention text-mention-foreground peer-hover/menu-button:text-mention-foreground"
+                      [attr.aria-label]="mentionCount + ' menções não lidas'"
+                    >
+                      &#64;
+                    </span>
+                  } @else if (notifications.unreadFor(dm.id); as unread) {
+                    <span
+                      z-sidebar-menu-badge
+                      class="rounded-full bg-primary text-primary-foreground peer-hover/menu-button:text-primary-foreground"
+                      [attr.aria-label]="unread + ' mensagens não lidas'"
+                    >
+                      {{ unread }}
+                    </span>
+                  }
                 </li>
               } @empty {
                 <!-- The group label already folds away on the icon rail via its
@@ -134,6 +179,8 @@ export class SidebarComponent {
   private readonly dialogService = inject(ZardDialogService);
 
   protected readonly conversations = inject(ConversationService);
+  protected readonly notifications = inject(NotificationService);
+  protected readonly mentions = inject(MentionService);
   private readonly userService = inject(UserService);
   private readonly roomNavigation = inject(RoomNavigationService);
 
@@ -147,9 +194,6 @@ export class SidebarComponent {
     const lastRoomId = this.roomNavigation.lastRoomId();
     return lastRoomId ? `${this.home.path}/${lastRoomId}` : this.home.path;
   });
-
-  /** Exposed for the template — an imported function is not in its scope. */
-  protected readonly initials = toInitials;
 
   /**
    * `zActive` writes the `data-active` attribute the menu button's
@@ -169,8 +213,8 @@ export class SidebarComponent {
     this.conversations.refresh();
   }
 
-  protected isOnline(userId: string): boolean {
-    return this.userService.isOnline(userId);
+  protected presence(userId: string): { class: string; label: string } | null {
+    return this.userService.presence(userId);
   }
 
   /**

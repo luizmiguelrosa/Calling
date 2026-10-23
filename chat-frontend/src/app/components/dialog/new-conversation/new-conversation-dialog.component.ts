@@ -5,13 +5,13 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideSearch, lucideUserRoundSearch } from '@ng-icons/lucide';
 import { finalize } from 'rxjs';
 
-import { ZardAvatarComponent } from '@/shared/components/avatar/avatar.component';
 import { ZardDialogRef } from '@/shared/components/dialog/dialog-ref';
 import { ZardEmptyComponent } from '@/shared/components/empty/empty.component';
 import { ZardInputComponent } from '@/shared/components/input/input.component';
 import { ZardInputGroupImports } from '@/shared/components/input-group';
 import { ZardSkeletonComponent } from '@/shared/components/skeleton/skeleton.component';
-import { initials as toInitials } from '@/shared/utils/initials';
+
+import { UserAvatarComponent } from '@/components/shared/user-avatar/user-avatar.component';
 
 import { AuthService } from '@/services/auth.service';
 import { ConversationService } from '@/services/conversation.service';
@@ -26,7 +26,7 @@ import { UserService } from '@/services/user.service';
   selector: 'app-new-conversation-dialog',
   imports: [
     NgIcon,
-    ZardAvatarComponent,
+    UserAvatarComponent,
     ZardEmptyComponent,
     ZardInputComponent,
     ZardInputGroupImports,
@@ -71,12 +71,13 @@ import { UserService } from '@/services/user.service';
                 (click)="select(user)"
               >
                 <span class="relative shrink-0">
-                  <z-avatar zSize="sm" [zFallback]="initials(user.name || user.username)" />
-                  @if (isOnline(user.id)) {
+                  <app-user-avatar [userId]="user.id" [name]="user.name" [username]="user.username" />
+                  @if (presence(user.id); as p) {
                     <span
-                      class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-online ring-2 ring-popover"
+                      class="absolute -top-0.5 -right-0.5 size-2 rounded-full ring-2 ring-popover"
+                      [class]="p.class"
                       role="img"
-                      aria-label="Online"
+                      [attr.aria-label]="p.label"
                     ></span>
                   }
                 </span>
@@ -100,9 +101,6 @@ export class NewConversationDialogComponent {
   private readonly dialogRef = inject(ZardDialogRef<unknown, DMRoomResponse>);
 
   protected readonly skeletonRows = [1, 2, 3, 4];
-
-  /** Exposed for the template — an imported function is not in its scope. */
-  protected readonly initials = toInitials;
 
   protected readonly users = signal<UserResponse[]>([]);
   protected readonly query = signal('');
@@ -139,8 +137,8 @@ export class NewConversationDialogComponent {
     this.userService.loadOnline();
   }
 
-  protected isOnline(userId: string): boolean {
-    return this.userService.isOnline(userId);
+  protected presence(userId: string): { class: string; label: string } | null {
+    return this.userService.presence(userId);
   }
 
   protected onSearch(event: Event): void {
