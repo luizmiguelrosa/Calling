@@ -1,14 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideHash, lucidePlus } from '@ng-icons/lucide';
+import { lucideHash } from '@ng-icons/lucide';
 import { filter, finalize, map } from 'rxjs';
 
-import { ZardButtonComponent } from '@/shared/components/button';
-import { ZardDialogService } from '@/shared/components/dialog/dialog.service';
-import { ZardDialogRef } from '@/shared/components/dialog/dialog-ref';
 import { ZardEmptyComponent } from '@/shared/components/empty/empty.component';
 import { ZardSkeletonComponent } from '@/shared/components/skeleton/skeleton.component';
 
@@ -25,7 +22,7 @@ import { RoomService } from '@/services/room.service';
 @Component({
   selector: 'chat-room-list',
   standalone: true,
-  imports: [NgIcon, RouterOutlet, ZardButtonComponent, ZardEmptyComponent, ZardSkeletonComponent],
+  imports: [NgIcon, RouterOutlet, ZardEmptyComponent, ZardSkeletonComponent],
   // A component host is an inline custom element by default, so it needs to be
   // told to stretch or the flex row below has nothing to fill.
   host: {
@@ -33,20 +30,8 @@ import { RoomService } from '@/services/room.service';
   },
   template: `
     <div class="flex lg:w-60 shrink-0 flex-col border-r md:w-48">
-      <div class="flex h-14 shrink-0 items-center gap-2 px-4">
+      <div class="flex h-14 shrink-0 items-center px-4">
         <h1 class="text-xl font-semibold">Início</h1>
-
-        <button
-          z-button
-          zType="ghost"
-          zSize="icon-sm"
-          class="ml-auto"
-          aria-label="Criar sala"
-          title="Criar sala"
-          (click)="createRoom()"
-        >
-          <ng-icon name="lucidePlus" />
-        </button>
       </div>
 
       <div class="min-h-0 flex-1 overflow-auto p-2">
@@ -109,13 +94,12 @@ import { RoomService } from '@/services/room.service';
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  viewProviders: [provideIcons({ lucideHash, lucidePlus })],
+  viewProviders: [provideIcons({ lucideHash })],
 })
 export class RoomListComponent {
   private readonly roomService = inject(RoomService);
   private readonly roomNavigation = inject(RoomNavigationService);
   private readonly router = inject(Router);
-  private readonly dialogService = inject(ZardDialogService);
 
   protected readonly notifications = inject(NotificationService);
   protected readonly mentions = inject(MentionService);
@@ -125,17 +109,6 @@ export class RoomListComponent {
   protected readonly rooms = signal<RoomResponse[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
-
-  /**
-   * The open create dialog, if any. Held as a signal so the constructor effect can
-   * watch its result. It cannot be read from the async `createRoom` directly: an
-   * effect created after an `await` has no injection context and throws.
-   *
-   * `R` (the result) is left at its default. `create` returns `ZardDialogRef<T>`
-   * and never propagates one, so the effect below casts instead; `T` is pinned to
-   * `unknown` at the call site to match this declaration.
-   */
-    private readonly createDialog = signal<ZardDialogRef<unknown> | null>(null);
 
   private readonly activeUrl = toSignal(
     this.router.events.pipe(
@@ -167,68 +140,9 @@ export class RoomListComponent {
         this.roomNavigation.remember(roomId);
       }
     });
-
-    effect(() => {
-      // `create` returns `ZardDialogRef<T>` without the result type, so
-      // `result()` is `unknown`; the dialog only ever closes with a
-      // RoomResponse, so the cast is where that contract is stated.
-      const room = this.createDialog()?.result() as RoomResponse | undefined;
-      if (!room) {
-        return;
-      }
-
-      // Drop the ref first so cancelling or a later creation is not re-handled.
-      untracked(() => this.createDialog.set(null));
-
-      // Refetch rather than patching the new room into the list: a public room
-      // can also be created from another window, and only a refetch sees those.
-      this.refreshRooms();
-
-      this.open(room);
-    });
-  }
-
-  /**
-   * Re-reads the public room list. Called after a room is created rather than
-   * splicing the response in, so a room created from another window shows up too.
-   */
-  private refreshRooms(): void {
-    this.roomService
-      .getPublicRooms()
-      .subscribe({ next: rooms => this.rooms.set(rooms), error: () => undefined });
   }
 
   protected open(room: RoomResponse): void {
     this.router.navigate(['/chat/rooms', room.id]);
-  }
-
-  /**
-   * Opens the create-room modal and, on success, opens the room it created.
-   *
-   * The dialog is imported on demand because `zContent` needs the component type
-   * up front, which a `loadComponent` route cannot hand it — the same reason the
-   * sidebar imports its "Nova conversa" dialog that way.
-   */
-  protected async createRoom(): Promise<void> {
-    const { NewRoomDialogComponent } = await import(
-      '@/components/dialog/new-room/new-room-dialog.component'
-    );
-
-    // Stored as a signal rather than acted on directly: the effect in the
-    // constructor owns the result, so the refetch and navigation still happen
-    // whether the dialog closes here or after a navigation away.
-    this.createDialog.set(
-      // The explicit generic pins T to unknown. Without it T is inferred as
-      // NewRoomDialogComponent from zContent, and the returned ref no longer
-      // matches the signal's declared type.
-      this.dialogService.create<unknown, RoomResponse>({
-        zTitle: 'Criar sala',
-        zContent: NewRoomDialogComponent,
-        zHideFooter: true,
-        zWidth: '26rem',
-        // The vendored `sm:max-w-sm` cap would otherwise win over `zWidth`.
-        zCustomClasses: 'sm:max-w-md',
-      }),
-    );
   }
 }

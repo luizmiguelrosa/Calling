@@ -46,6 +46,19 @@ export class AuthService {
   }
 
   /**
+   * Replaces the signed-in user's password. The current password is required so
+   * a session left open on a shared machine cannot silently take the account
+   * over. Existing tokens stay valid; only future logins use the new password.
+   */
+  changePassword(currentPassword: string, newPassword: string): Observable<void> {
+    return this.http.put<void>(
+      `${this.config.apiUrl()}/users/me/password`,
+      { current_password: currentPassword, new_password: newPassword },
+      { headers: this.getAuthHeaders() },
+    );
+  }
+
+  /**
    * Exchanges the stored refresh token for a fresh pair. The backend rotates the
    * refresh token on every use, so the stored pair is replaced on success.
    */

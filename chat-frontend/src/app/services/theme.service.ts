@@ -12,7 +12,7 @@ import { Injectable, computed, signal } from '@angular/core';
  */
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
-  private static readonly STORAGE_KEY = 'calling_theme';
+  private static readonly STORAGE_KEY = 'talk_theme';
 
   private readonly systemPrefersDark = signal(
     typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches,

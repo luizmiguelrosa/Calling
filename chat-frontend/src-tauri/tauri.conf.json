@@ -1,18 +1,18 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Calling",
-  "version": "1.2.0",
-  "identifier": "com.luizmiguelrosa.calling",
+  "productName": "Talk",
+  "version": "1.3.0",
+  "identifier": "com.luizmiguelrosa.talk",
   "build": {
     "beforeDevCommand": "npm run start",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist/calling/browser"
+    "frontendDist": "../dist/talk/browser"
   },
   "app": {
     "windows": [
       {
-        "title": "Calling",
+        "title": "Talk",
         "width": 480,
         "height": 720,
         "minWidth": 420,
@@ -38,6 +38,12 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
+    }
   }
 }

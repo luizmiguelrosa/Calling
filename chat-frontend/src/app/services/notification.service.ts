@@ -18,7 +18,7 @@ import { UserService } from './user.service';
 import { WebSocketService } from './websocket.service';
 import { WindowService } from './window.service';
 
-const BLOCKED_ROOMS_KEY = 'calling_blocked_rooms';
+const BLOCKED_ROOMS_KEY = 'talk_blocked_rooms';
 
 /** The payload carried by a native notification, so a click can reopen its room. */
 interface NotificationExtra {

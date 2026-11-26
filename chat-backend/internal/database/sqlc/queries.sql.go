@@ -8,7 +8,58 @@ package sqlc
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const addGroupMember = `-- name: AddGroupMember :exec
+INSERT INTO group_members (user_id, group_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type AddGroupMemberParams struct {
+	UserID  string `json:"user_id"`
+	GroupID string `json:"group_id"`
+}
+
+func (q *Queries) AddGroupMember(ctx context.Context, arg AddGroupMemberParams) error {
+	_, err := q.db.Exec(ctx, addGroupMember, arg.UserID, arg.GroupID)
+	return err
+}
+
+const addGroupPermission = `-- name: AddGroupPermission :exec
+INSERT INTO group_permissions (group_id, permission)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type AddGroupPermissionParams struct {
+	GroupID    string `json:"group_id"`
+	Permission string `json:"permission"`
+}
+
+func (q *Queries) AddGroupPermission(ctx context.Context, arg AddGroupPermissionParams) error {
+	_, err := q.db.Exec(ctx, addGroupPermission, arg.GroupID, arg.Permission)
+	return err
+}
+
+const addRoomGroupPermission = `-- name: AddRoomGroupPermission :exec
+INSERT INTO room_group_permissions (room_id, group_id, permission)
+VALUES ($1, $2, $3)
+ON CONFLICT DO NOTHING
+`
+
+type AddRoomGroupPermissionParams struct {
+	RoomID     string `json:"room_id"`
+	GroupID    string `json:"group_id"`
+	Permission string `json:"permission"`
+}
+
+func (q *Queries) AddRoomGroupPermission(ctx context.Context, arg AddRoomGroupPermissionParams) error {
+	_, err := q.db.Exec(ctx, addRoomGroupPermission, arg.RoomID, arg.GroupID, arg.Permission)
+	return err
+}
 
 const addRoomParticipant = `-- name: AddRoomParticipant :exec
 INSERT INTO room_participants (room_id, user_id)
@@ -22,6 +73,47 @@ type AddRoomParticipantParams struct {
 
 func (q *Queries) AddRoomParticipant(ctx context.Context, arg AddRoomParticipantParams) error {
 	_, err := q.db.Exec(ctx, addRoomParticipant, arg.RoomID, arg.UserID)
+	return err
+}
+
+const addRoomPermission = `-- name: AddRoomPermission :exec
+INSERT INTO room_permissions (room_id, user_id, permission)
+VALUES ($1, $2, $3)
+ON CONFLICT DO NOTHING
+`
+
+type AddRoomPermissionParams struct {
+	RoomID     string `json:"room_id"`
+	UserID     string `json:"user_id"`
+	Permission string `json:"permission"`
+}
+
+func (q *Queries) AddRoomPermission(ctx context.Context, arg AddRoomPermissionParams) error {
+	_, err := q.db.Exec(ctx, addRoomPermission, arg.RoomID, arg.UserID, arg.Permission)
+	return err
+}
+
+const createAdminUser = `-- name: CreateAdminUser :exec
+INSERT INTO users (id, username, password, name, email)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type CreateAdminUserParams struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+}
+
+func (q *Queries) CreateAdminUser(ctx context.Context, arg CreateAdminUserParams) error {
+	_, err := q.db.Exec(ctx, createAdminUser,
+		arg.ID,
+		arg.Username,
+		arg.Password,
+		arg.Name,
+		arg.Email,
+	)
 	return err
 }
 
@@ -55,6 +147,38 @@ func (q *Queries) CreateFile(ctx context.Context, arg CreateFileParams) error {
 	return err
 }
 
+const createGroup = `-- name: CreateGroup :exec
+INSERT INTO groups (id, name, color)
+VALUES ($1, $2, $3)
+`
+
+type CreateGroupParams struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func (q *Queries) CreateGroup(ctx context.Context, arg CreateGroupParams) error {
+	_, err := q.db.Exec(ctx, createGroup, arg.ID, arg.Name, arg.Color)
+	return err
+}
+
+const createRole = `-- name: CreateRole :exec
+INSERT INTO roles (id, name, color)
+VALUES ($1, $2, $3)
+`
+
+type CreateRoleParams struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func (q *Queries) CreateRole(ctx context.Context, arg CreateRoleParams) error {
+	_, err := q.db.Exec(ctx, createRole, arg.ID, arg.Name, arg.Color)
+	return err
+}
+
 const createRoom = `-- name: CreateRoom :exec
 INSERT INTO rooms (id, name, is_dm)
 VALUES ($1, $2, $3)
@@ -72,8 +196,8 @@ func (q *Queries) CreateRoom(ctx context.Context, arg CreateRoomParams) error {
 }
 
 const createUser = `-- name: CreateUser :exec
-INSERT INTO users (id, username, password, name, role)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO users (id, username, password, name)
+VALUES ($1, $2, $3, $4)
 `
 
 type CreateUserParams struct {
@@ -81,7 +205,6 @@ type CreateUserParams struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	Name     string `json:"name"`
-	Role     string `json:"role"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
@@ -90,9 +213,81 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
 		arg.Username,
 		arg.Password,
 		arg.Name,
-		arg.Role,
 	)
 	return err
+}
+
+const deleteGroupMembers = `-- name: DeleteGroupMembers :exec
+DELETE FROM group_members WHERE user_id = $1
+`
+
+func (q *Queries) DeleteGroupMembers(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, deleteGroupMembers, userID)
+	return err
+}
+
+const deleteGroupPermissions = `-- name: DeleteGroupPermissions :exec
+DELETE FROM group_permissions WHERE group_id = $1
+`
+
+func (q *Queries) DeleteGroupPermissions(ctx context.Context, groupID string) error {
+	_, err := q.db.Exec(ctx, deleteGroupPermissions, groupID)
+	return err
+}
+
+const deleteRoomGroupPermissionsForGroup = `-- name: DeleteRoomGroupPermissionsForGroup :exec
+DELETE FROM room_group_permissions WHERE room_id = $1 AND group_id = $2
+`
+
+type DeleteRoomGroupPermissionsForGroupParams struct {
+	RoomID  string `json:"room_id"`
+	GroupID string `json:"group_id"`
+}
+
+func (q *Queries) DeleteRoomGroupPermissionsForGroup(ctx context.Context, arg DeleteRoomGroupPermissionsForGroupParams) error {
+	_, err := q.db.Exec(ctx, deleteRoomGroupPermissionsForGroup, arg.RoomID, arg.GroupID)
+	return err
+}
+
+const deleteRoomPermissionsForUser = `-- name: DeleteRoomPermissionsForUser :exec
+DELETE FROM room_permissions WHERE room_id = $1 AND user_id = $2
+`
+
+type DeleteRoomPermissionsForUserParams struct {
+	RoomID string `json:"room_id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) DeleteRoomPermissionsForUser(ctx context.Context, arg DeleteRoomPermissionsForUserParams) error {
+	_, err := q.db.Exec(ctx, deleteRoomPermissionsForUser, arg.RoomID, arg.UserID)
+	return err
+}
+
+const getAdminUser = `-- name: GetAdminUser :one
+SELECT id, username, email, name, created_at
+FROM users
+WHERE id = $1 AND is_deleted = false
+`
+
+type GetAdminUserRow struct {
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetAdminUser(ctx context.Context, id string) (GetAdminUserRow, error) {
+	row := q.db.QueryRow(ctx, getAdminUser, id)
+	var i GetAdminUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.Name,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getDMParticipants = `-- name: GetDMParticipants :many
@@ -145,19 +340,69 @@ func (q *Queries) GetFile(ctx context.Context, id string) (File, error) {
 	return i, err
 }
 
+const getGroup = `-- name: GetGroup :one
+SELECT id, name, color
+FROM groups
+WHERE id = $1 AND is_deleted = false
+`
+
+type GetGroupRow struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func (q *Queries) GetGroup(ctx context.Context, id string) (GetGroupRow, error) {
+	row := q.db.QueryRow(ctx, getGroup, id)
+	var i GetGroupRow
+	err := row.Scan(&i.ID, &i.Name, &i.Color)
+	return i, err
+}
+
+const getGroupByName = `-- name: GetGroupByName :one
+SELECT id, name, color
+FROM groups
+WHERE name = $1 AND is_deleted = false
+`
+
+type GetGroupByNameRow struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func (q *Queries) GetGroupByName(ctx context.Context, name string) (GetGroupByNameRow, error) {
+	row := q.db.QueryRow(ctx, getGroupByName, name)
+	var i GetGroupByNameRow
+	err := row.Scan(&i.ID, &i.Name, &i.Color)
+	return i, err
+}
+
 const getHistory = `-- name: GetHistory :many
-SELECT room_id, author, content, is_file, sended_at
-FROM messages
-WHERE room_id = $1
-ORDER BY sended_at, id
+SELECT m.room_id, m.author, m.content, m.is_file, m.sended_at,
+       m.id, m.reply_to_id,
+       parent.room_id AS reply_room_id,
+       parent.author AS reply_author,
+       parent.content AS reply_content,
+       parent.is_file AS reply_is_file
+FROM messages m
+LEFT JOIN messages parent ON parent.id = m.reply_to_id
+WHERE m.room_id = $1
+ORDER BY m.sended_at, m.id
 `
 
 type GetHistoryRow struct {
-	RoomID   string    `json:"room_id"`
-	Author   string    `json:"author"`
-	Content  string    `json:"content"`
-	IsFile   bool      `json:"is_file"`
-	SendedAt time.Time `json:"sended_at"`
+	RoomID       string      `json:"room_id"`
+	Author       string      `json:"author"`
+	Content      string      `json:"content"`
+	IsFile       bool        `json:"is_file"`
+	SendedAt     time.Time   `json:"sended_at"`
+	ID           int64       `json:"id"`
+	ReplyToID    pgtype.Int8 `json:"reply_to_id"`
+	ReplyRoomID  pgtype.Text `json:"reply_room_id"`
+	ReplyAuthor  pgtype.Text `json:"reply_author"`
+	ReplyContent pgtype.Text `json:"reply_content"`
+	ReplyIsFile  pgtype.Bool `json:"reply_is_file"`
 }
 
 func (q *Queries) GetHistory(ctx context.Context, roomID string) ([]GetHistoryRow, error) {
@@ -175,6 +420,12 @@ func (q *Queries) GetHistory(ctx context.Context, roomID string) ([]GetHistoryRo
 			&i.Content,
 			&i.IsFile,
 			&i.SendedAt,
+			&i.ID,
+			&i.ReplyToID,
+			&i.ReplyRoomID,
+			&i.ReplyAuthor,
+			&i.ReplyContent,
+			&i.ReplyIsFile,
 		); err != nil {
 			return nil, err
 		}
@@ -184,6 +435,56 @@ func (q *Queries) GetHistory(ctx context.Context, roomID string) ([]GetHistoryRo
 		return nil, err
 	}
 	return items, nil
+}
+
+const getMessageByID = `-- name: GetMessageByID :one
+SELECT id, room_id, author, content, is_file, sended_at, reply_to_id
+FROM messages
+WHERE id = $1
+`
+
+type GetMessageByIDRow struct {
+	ID        int64       `json:"id"`
+	RoomID    string      `json:"room_id"`
+	Author    string      `json:"author"`
+	Content   string      `json:"content"`
+	IsFile    bool        `json:"is_file"`
+	SendedAt  time.Time   `json:"sended_at"`
+	ReplyToID pgtype.Int8 `json:"reply_to_id"`
+}
+
+func (q *Queries) GetMessageByID(ctx context.Context, id int64) (GetMessageByIDRow, error) {
+	row := q.db.QueryRow(ctx, getMessageByID, id)
+	var i GetMessageByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.RoomID,
+		&i.Author,
+		&i.Content,
+		&i.IsFile,
+		&i.SendedAt,
+		&i.ReplyToID,
+	)
+	return i, err
+}
+
+const getRole = `-- name: GetRole :one
+SELECT id, name, color
+FROM roles
+WHERE id = $1 AND is_deleted = false
+`
+
+type GetRoleRow struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func (q *Queries) GetRole(ctx context.Context, id string) (GetRoleRow, error) {
+	row := q.db.QueryRow(ctx, getRole, id)
+	var i GetRoleRow
+	err := row.Scan(&i.ID, &i.Name, &i.Color)
+	return i, err
 }
 
 const getRoomMetadata = `-- name: GetRoomMetadata :one
@@ -206,43 +507,93 @@ func (q *Queries) GetRoomMetadata(ctx context.Context, id string) (GetRoomMetada
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, password, name, role, created_at
+SELECT id, username, password, name, created_at
 FROM users
-WHERE id = $1
+WHERE id = $1 AND is_deleted = false
 `
 
-func (q *Queries) GetUserByID(ctx context.Context, id string) (User, error) {
+type GetUserByIDRow struct {
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
+	Password  string    `json:"password"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error) {
 	row := q.db.QueryRow(ctx, getUserByID, id)
-	var i User
+	var i GetUserByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.Username,
 		&i.Password,
 		&i.Name,
-		&i.Role,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password, name, role, created_at
+SELECT id, username, password, name, created_at
 FROM users
-WHERE username = $1
+WHERE username = $1 AND is_deleted = false
 `
 
-func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
+type GetUserByUsernameRow struct {
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
+	Password  string    `json:"password"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUserByUsernameRow, error) {
 	row := q.db.QueryRow(ctx, getUserByUsername, username)
-	var i User
+	var i GetUserByUsernameRow
 	err := row.Scan(
 		&i.ID,
 		&i.Username,
 		&i.Password,
 		&i.Name,
-		&i.Role,
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const getUserRole = `-- name: GetUserRole :one
+SELECT r.id, r.name, r.color
+FROM users u
+JOIN roles r ON r.id = u.role_id AND r.is_deleted = false
+WHERE u.id = $1
+`
+
+type GetUserRoleRow struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func (q *Queries) GetUserRole(ctx context.Context, id string) (GetUserRoleRow, error) {
+	row := q.db.QueryRow(ctx, getUserRole, id)
+	var i GetUserRoleRow
+	err := row.Scan(&i.ID, &i.Name, &i.Color)
+	return i, err
+}
+
+const groupNameExistsExcluding = `-- name: GroupNameExistsExcluding :one
+SELECT EXISTS(SELECT 1 FROM groups WHERE name = $1 AND is_deleted = false AND id <> $2)
+`
+
+type GroupNameExistsExcludingParams struct {
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
+
+func (q *Queries) GroupNameExistsExcluding(ctx context.Context, arg GroupNameExistsExcludingParams) (bool, error) {
+	row := q.db.QueryRow(ctx, groupNameExistsExcluding, arg.Name, arg.ID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const isRoomParticipant = `-- name: IsRoomParticipant :one
@@ -262,6 +613,409 @@ func (q *Queries) IsRoomParticipant(ctx context.Context, arg IsRoomParticipantPa
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const listAdminUsers = `-- name: ListAdminUsers :many
+SELECT id, username, email, name, created_at
+FROM users
+WHERE is_deleted = false
+ORDER BY username
+`
+
+type ListAdminUsersRow struct {
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (q *Queries) ListAdminUsers(ctx context.Context) ([]ListAdminUsersRow, error) {
+	rows, err := q.db.Query(ctx, listAdminUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAdminUsersRow{}
+	for rows.Next() {
+		var i ListAdminUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Email,
+			&i.Name,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllRooms = `-- name: ListAllRooms :many
+SELECT id, name, is_dm
+FROM rooms
+WHERE is_dm = false
+ORDER BY name
+`
+
+type ListAllRoomsRow struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	IsDm bool   `json:"is_dm"`
+}
+
+func (q *Queries) ListAllRooms(ctx context.Context) ([]ListAllRoomsRow, error) {
+	rows, err := q.db.Query(ctx, listAllRooms)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllRoomsRow{}
+	for rows.Next() {
+		var i ListAllRoomsRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.IsDm); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllUserGroups = `-- name: ListAllUserGroups :many
+SELECT gm.user_id, g.id AS group_id, g.name AS group_name, g.color AS group_color
+FROM group_members gm
+JOIN groups g ON g.id = gm.group_id AND g.is_deleted = false
+JOIN users u ON u.id = gm.user_id AND u.is_deleted = false
+ORDER BY g.name
+`
+
+type ListAllUserGroupsRow struct {
+	UserID     string `json:"user_id"`
+	GroupID    string `json:"group_id"`
+	GroupName  string `json:"group_name"`
+	GroupColor string `json:"group_color"`
+}
+
+func (q *Queries) ListAllUserGroups(ctx context.Context) ([]ListAllUserGroupsRow, error) {
+	rows, err := q.db.Query(ctx, listAllUserGroups)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllUserGroupsRow{}
+	for rows.Next() {
+		var i ListAllUserGroupsRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.GroupID,
+			&i.GroupName,
+			&i.GroupColor,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllUserRoles = `-- name: ListAllUserRoles :many
+SELECT u.id AS user_id, r.id AS role_id, r.name AS role_name, r.color AS role_color
+FROM users u
+JOIN roles r ON r.id = u.role_id AND r.is_deleted = false
+WHERE u.is_deleted = false
+ORDER BY r.name
+`
+
+type ListAllUserRolesRow struct {
+	UserID    string `json:"user_id"`
+	RoleID    string `json:"role_id"`
+	RoleName  string `json:"role_name"`
+	RoleColor string `json:"role_color"`
+}
+
+func (q *Queries) ListAllUserRoles(ctx context.Context) ([]ListAllUserRolesRow, error) {
+	rows, err := q.db.Query(ctx, listAllUserRoles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllUserRolesRow{}
+	for rows.Next() {
+		var i ListAllUserRolesRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.RoleID,
+			&i.RoleName,
+			&i.RoleColor,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGroupMembers = `-- name: ListGroupMembers :many
+SELECT u.id, u.username, u.name, u.email
+FROM group_members gm
+JOIN users u ON u.id = gm.user_id AND u.is_deleted = false
+WHERE gm.group_id = $1
+ORDER BY u.username
+`
+
+type ListGroupMembersRow struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+}
+
+func (q *Queries) ListGroupMembers(ctx context.Context, groupID string) ([]ListGroupMembersRow, error) {
+	rows, err := q.db.Query(ctx, listGroupMembers, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGroupMembersRow{}
+	for rows.Next() {
+		var i ListGroupMembersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Name,
+			&i.Email,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGroupPermissions = `-- name: ListGroupPermissions :many
+SELECT permission FROM group_permissions WHERE group_id = $1 ORDER BY permission
+`
+
+func (q *Queries) ListGroupPermissions(ctx context.Context, groupID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listGroupPermissions, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var permission string
+		if err := rows.Scan(&permission); err != nil {
+			return nil, err
+		}
+		items = append(items, permission)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGroups = `-- name: ListGroups :many
+SELECT id, name, color
+FROM groups
+WHERE is_deleted = false
+ORDER BY name
+`
+
+type ListGroupsRow struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
+	rows, err := q.db.Query(ctx, listGroups)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGroupsRow{}
+	for rows.Next() {
+		var i ListGroupsRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.Color); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRoleMembers = `-- name: ListRoleMembers :many
+SELECT u.id, u.username, u.name, u.email
+FROM users u
+WHERE u.role_id = $1 AND u.is_deleted = false
+ORDER BY u.username
+`
+
+type ListRoleMembersRow struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+}
+
+func (q *Queries) ListRoleMembers(ctx context.Context, roleID pgtype.Text) ([]ListRoleMembersRow, error) {
+	rows, err := q.db.Query(ctx, listRoleMembers, roleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRoleMembersRow{}
+	for rows.Next() {
+		var i ListRoleMembersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Name,
+			&i.Email,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRoles = `-- name: ListRoles :many
+SELECT id, name, color
+FROM roles
+WHERE is_deleted = false
+ORDER BY name
+`
+
+type ListRolesRow struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func (q *Queries) ListRoles(ctx context.Context) ([]ListRolesRow, error) {
+	rows, err := q.db.Query(ctx, listRoles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRolesRow{}
+	for rows.Next() {
+		var i ListRolesRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.Color); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRoomGroupPermissions = `-- name: ListRoomGroupPermissions :many
+SELECT rgp.group_id, g.name, g.color, rgp.permission
+FROM room_group_permissions rgp
+JOIN groups g ON g.id = rgp.group_id AND g.is_deleted = false
+WHERE rgp.room_id = $1
+ORDER BY g.name, rgp.permission
+`
+
+type ListRoomGroupPermissionsRow struct {
+	GroupID    string `json:"group_id"`
+	Name       string `json:"name"`
+	Color      string `json:"color"`
+	Permission string `json:"permission"`
+}
+
+func (q *Queries) ListRoomGroupPermissions(ctx context.Context, roomID string) ([]ListRoomGroupPermissionsRow, error) {
+	rows, err := q.db.Query(ctx, listRoomGroupPermissions, roomID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRoomGroupPermissionsRow{}
+	for rows.Next() {
+		var i ListRoomGroupPermissionsRow
+		if err := rows.Scan(
+			&i.GroupID,
+			&i.Name,
+			&i.Color,
+			&i.Permission,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRoomPermissions = `-- name: ListRoomPermissions :many
+SELECT rp.user_id, u.username, u.name, rp.permission
+FROM room_permissions rp
+JOIN users u ON u.id = rp.user_id AND u.is_deleted = false
+WHERE rp.room_id = $1
+ORDER BY u.username, rp.permission
+`
+
+type ListRoomPermissionsRow struct {
+	UserID     string `json:"user_id"`
+	Username   string `json:"username"`
+	Name       string `json:"name"`
+	Permission string `json:"permission"`
+}
+
+func (q *Queries) ListRoomPermissions(ctx context.Context, roomID string) ([]ListRoomPermissionsRow, error) {
+	rows, err := q.db.Query(ctx, listRoomPermissions, roomID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRoomPermissionsRow{}
+	for rows.Next() {
+		var i ListRoomPermissionsRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Username,
+			&i.Name,
+			&i.Permission,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listRooms = `-- name: ListRooms :many
@@ -305,7 +1059,7 @@ SELECT r.id, r.name, r.is_dm,
 FROM rooms r
 JOIN room_participants rp ON rp.room_id = r.id AND rp.user_id = $1
 JOIN room_participants op ON op.room_id = r.id AND op.user_id <> $1
-JOIN users u ON u.id = op.user_id
+JOIN users u ON u.id = op.user_id AND u.is_deleted = false
 WHERE r.is_dm = true
 ORDER BY r.created_at
 `
@@ -346,9 +1100,74 @@ func (q *Queries) ListUserDMs(ctx context.Context, userID string) ([]ListUserDMs
 	return items, nil
 }
 
+const listUserGroupsForUser = `-- name: ListUserGroupsForUser :many
+SELECT g.id, g.name, g.color
+FROM group_members gm
+JOIN groups g ON g.id = gm.group_id AND g.is_deleted = false
+WHERE gm.user_id = $1
+ORDER BY g.name
+`
+
+type ListUserGroupsForUserRow struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func (q *Queries) ListUserGroupsForUser(ctx context.Context, userID string) ([]ListUserGroupsForUserRow, error) {
+	rows, err := q.db.Query(ctx, listUserGroupsForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserGroupsForUserRow{}
+	for rows.Next() {
+		var i ListUserGroupsForUserRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.Color); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserPermissions = `-- name: ListUserPermissions :many
+SELECT DISTINCT gp.permission
+FROM group_members gm
+JOIN users u ON u.id = gm.user_id AND u.is_deleted = false
+JOIN groups g ON g.id = gm.group_id AND g.is_deleted = false
+JOIN group_permissions gp ON gp.group_id = gm.group_id
+WHERE gm.user_id = $1
+ORDER BY gp.permission
+`
+
+func (q *Queries) ListUserPermissions(ctx context.Context, userID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listUserPermissions, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var permission string
+		if err := rows.Scan(&permission); err != nil {
+			return nil, err
+		}
+		items = append(items, permission)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, name, role
+SELECT id, username, name
 FROM users
+WHERE is_deleted = false
 ORDER BY username
 `
 
@@ -356,7 +1175,6 @@ type ListUsersRow struct {
 	ID       string `json:"id"`
 	Username string `json:"username"`
 	Name     string `json:"name"`
-	Role     string `json:"role"`
 }
 
 func (q *Queries) ListUsers(ctx context.Context) ([]ListUsersRow, error) {
@@ -368,12 +1186,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]ListUsersRow, error) {
 	items := []ListUsersRow{}
 	for rows.Next() {
 		var i ListUsersRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Username,
-			&i.Name,
-			&i.Role,
-		); err != nil {
+		if err := rows.Scan(&i.ID, &i.Username, &i.Name); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -382,6 +1195,77 @@ func (q *Queries) ListUsers(ctx context.Context) ([]ListUsersRow, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const liveUserExists = `-- name: LiveUserExists :one
+SELECT EXISTS(SELECT 1 FROM users WHERE is_deleted = false)
+`
+
+func (q *Queries) LiveUserExists(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, liveUserExists)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const removeGroupMember = `-- name: RemoveGroupMember :exec
+DELETE FROM group_members WHERE group_id = $1 AND user_id = $2
+`
+
+type RemoveGroupMemberParams struct {
+	GroupID string `json:"group_id"`
+	UserID  string `json:"user_id"`
+}
+
+func (q *Queries) RemoveGroupMember(ctx context.Context, arg RemoveGroupMemberParams) error {
+	_, err := q.db.Exec(ctx, removeGroupMember, arg.GroupID, arg.UserID)
+	return err
+}
+
+const renameRoom = `-- name: RenameRoom :exec
+UPDATE rooms SET name = $2 WHERE id = $1 AND is_dm = false
+`
+
+type RenameRoomParams struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func (q *Queries) RenameRoom(ctx context.Context, arg RenameRoomParams) error {
+	_, err := q.db.Exec(ctx, renameRoom, arg.ID, arg.Name)
+	return err
+}
+
+const reviveUserByUsername = `-- name: ReviveUserByUsername :exec
+UPDATE users
+SET is_deleted = false, password = $2
+WHERE username = $1 AND is_deleted = true
+`
+
+type ReviveUserByUsernameParams struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (q *Queries) ReviveUserByUsername(ctx context.Context, arg ReviveUserByUsernameParams) error {
+	_, err := q.db.Exec(ctx, reviveUserByUsername, arg.Username, arg.Password)
+	return err
+}
+
+const roleNameExistsExcluding = `-- name: RoleNameExistsExcluding :one
+SELECT EXISTS(SELECT 1 FROM roles WHERE name = $1 AND is_deleted = false AND id <> $2)
+`
+
+type RoleNameExistsExcludingParams struct {
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
+
+func (q *Queries) RoleNameExistsExcluding(ctx context.Context, arg RoleNameExistsExcludingParams) (bool, error) {
+	row := q.db.QueryRow(ctx, roleNameExistsExcluding, arg.Name, arg.ID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const roomExistsByName = `-- name: RoomExistsByName :one
@@ -395,32 +1279,174 @@ func (q *Queries) RoomExistsByName(ctx context.Context, name string) (bool, erro
 	return exists, err
 }
 
-const saveMessage = `-- name: SaveMessage :exec
-INSERT INTO messages (room_id, author, content, is_file, sended_at)
-VALUES ($1, $2, $3, $4, $5)
+const roomHasExplicitPermissions = `-- name: RoomHasExplicitPermissions :one
+SELECT EXISTS(SELECT 1 FROM room_permissions rp WHERE rp.room_id = $1)
+    OR EXISTS(
+        SELECT 1
+        FROM room_group_permissions rgp
+        JOIN groups g ON g.id = rgp.group_id AND g.is_deleted = false
+        WHERE rgp.room_id = $1
+    )
+`
+
+func (q *Queries) RoomHasExplicitPermissions(ctx context.Context, roomID string) (pgtype.Bool, error) {
+	row := q.db.QueryRow(ctx, roomHasExplicitPermissions, roomID)
+	var column_1 pgtype.Bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const roomNameExistsExcluding = `-- name: RoomNameExistsExcluding :one
+SELECT EXISTS(SELECT 1 FROM rooms WHERE name = $1 AND id <> $2)
+`
+
+type RoomNameExistsExcludingParams struct {
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
+
+func (q *Queries) RoomNameExistsExcluding(ctx context.Context, arg RoomNameExistsExcludingParams) (bool, error) {
+	row := q.db.QueryRow(ctx, roomNameExistsExcluding, arg.Name, arg.ID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const saveMessage = `-- name: SaveMessage :one
+INSERT INTO messages (room_id, author, content, is_file, reply_to_id, sended_at)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id
 `
 
 type SaveMessageParams struct {
-	RoomID   string    `json:"room_id"`
-	Author   string    `json:"author"`
-	Content  string    `json:"content"`
-	IsFile   bool      `json:"is_file"`
-	SendedAt time.Time `json:"sended_at"`
+	RoomID    string      `json:"room_id"`
+	Author    string      `json:"author"`
+	Content   string      `json:"content"`
+	IsFile    bool        `json:"is_file"`
+	ReplyToID pgtype.Int8 `json:"reply_to_id"`
+	SendedAt  time.Time   `json:"sended_at"`
 }
 
-func (q *Queries) SaveMessage(ctx context.Context, arg SaveMessageParams) error {
-	_, err := q.db.Exec(ctx, saveMessage,
+func (q *Queries) SaveMessage(ctx context.Context, arg SaveMessageParams) (int64, error) {
+	row := q.db.QueryRow(ctx, saveMessage,
 		arg.RoomID,
 		arg.Author,
 		arg.Content,
 		arg.IsFile,
+		arg.ReplyToID,
 		arg.SendedAt,
 	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const setUserRole = `-- name: SetUserRole :exec
+UPDATE users SET role_id = $2 WHERE id = $1
+`
+
+type SetUserRoleParams struct {
+	ID     string      `json:"id"`
+	RoleID pgtype.Text `json:"role_id"`
+}
+
+func (q *Queries) SetUserRole(ctx context.Context, arg SetUserRoleParams) error {
+	_, err := q.db.Exec(ctx, setUserRole, arg.ID, arg.RoleID)
+	return err
+}
+
+const softDeleteGroup = `-- name: SoftDeleteGroup :exec
+UPDATE groups SET is_deleted = true WHERE id = $1
+`
+
+func (q *Queries) SoftDeleteGroup(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, softDeleteGroup, id)
+	return err
+}
+
+const softDeleteRole = `-- name: SoftDeleteRole :exec
+UPDATE roles SET is_deleted = true WHERE id = $1
+`
+
+func (q *Queries) SoftDeleteRole(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, softDeleteRole, id)
+	return err
+}
+
+const softDeleteUser = `-- name: SoftDeleteUser :exec
+UPDATE users
+SET is_deleted = true
+WHERE id = $1
+`
+
+func (q *Queries) SoftDeleteUser(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, softDeleteUser, id)
+	return err
+}
+
+const updateGroup = `-- name: UpdateGroup :exec
+UPDATE groups SET name = $2, color = $3 WHERE id = $1 AND is_deleted = false
+`
+
+type UpdateGroupParams struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func (q *Queries) UpdateGroup(ctx context.Context, arg UpdateGroupParams) error {
+	_, err := q.db.Exec(ctx, updateGroup, arg.ID, arg.Name, arg.Color)
+	return err
+}
+
+const updateRole = `-- name: UpdateRole :exec
+UPDATE roles SET name = $2, color = $3 WHERE id = $1 AND is_deleted = false
+`
+
+type UpdateRoleParams struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) error {
+	_, err := q.db.Exec(ctx, updateRole, arg.ID, arg.Name, arg.Color)
+	return err
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :exec
+UPDATE users SET password = $2 WHERE id = $1 AND is_deleted = false
+`
+
+type UpdateUserPasswordParams struct {
+	ID       string `json:"id"`
+	Password string `json:"password"`
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.Password)
+	return err
+}
+
+const updateUserProfile = `-- name: UpdateUserProfile :exec
+UPDATE users
+SET name = $2, email = $3
+WHERE id = $1 AND is_deleted = false
+`
+
+type UpdateUserProfileParams struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error {
+	_, err := q.db.Exec(ctx, updateUserProfile, arg.ID, arg.Name, arg.Email)
 	return err
 }
 
 const userExistsByID = `-- name: UserExistsByID :one
-SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)
+SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND is_deleted = false)
 `
 
 func (q *Queries) UserExistsByID(ctx context.Context, id string) (bool, error) {
@@ -439,4 +1465,55 @@ func (q *Queries) UserExistsByUsername(ctx context.Context, username string) (bo
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const userHasPermission = `-- name: UserHasPermission :one
+SELECT EXISTS(
+    SELECT 1
+    FROM group_members gm
+    JOIN users u ON u.id = gm.user_id AND u.is_deleted = false
+    JOIN groups g ON g.id = gm.group_id AND g.is_deleted = false
+    JOIN group_permissions gp ON gp.group_id = gm.group_id
+    WHERE gm.user_id = $1
+      AND (gp.permission = $2 OR gp.permission = 'admin.all')
+)
+`
+
+type UserHasPermissionParams struct {
+	UserID     string `json:"user_id"`
+	Permission string `json:"permission"`
+}
+
+func (q *Queries) UserHasPermission(ctx context.Context, arg UserHasPermissionParams) (bool, error) {
+	row := q.db.QueryRow(ctx, userHasPermission, arg.UserID, arg.Permission)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const userHasRoomPermission = `-- name: UserHasRoomPermission :one
+SELECT EXISTS(
+    SELECT 1 FROM room_permissions rp
+    WHERE rp.room_id = $1 AND rp.user_id = $2 AND rp.permission = $3
+) OR EXISTS(
+    SELECT 1
+    FROM room_group_permissions rgp
+    JOIN group_members gm ON gm.group_id = rgp.group_id
+    JOIN users u ON u.id = gm.user_id AND u.is_deleted = false
+    JOIN groups g ON g.id = rgp.group_id AND g.is_deleted = false
+    WHERE rgp.room_id = $1 AND gm.user_id = $2 AND rgp.permission = $3
+)
+`
+
+type UserHasRoomPermissionParams struct {
+	RoomID     string `json:"room_id"`
+	UserID     string `json:"user_id"`
+	Permission string `json:"permission"`
+}
+
+func (q *Queries) UserHasRoomPermission(ctx context.Context, arg UserHasRoomPermissionParams) (pgtype.Bool, error) {
+	row := q.db.QueryRow(ctx, userHasRoomPermission, arg.RoomID, arg.UserID, arg.Permission)
+	var column_1 pgtype.Bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }

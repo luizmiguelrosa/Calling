@@ -2,6 +2,7 @@ package files
 
 import (
 	"chat-backend/internal/models"
+	"chat-backend/internal/permissions"
 	"chat-backend/internal/storage"
 	"context"
 	"errors"
@@ -28,17 +29,29 @@ type Service interface {
 }
 
 type fileService struct {
-	repo  Repository
-	store *storage.Storage
+	repo        Repository
+	store       *storage.Storage
+	permissions permissions.Service
 }
 
-func NewService(repo Repository, store *storage.Storage) Service {
-	return &fileService{repo: repo, store: store}
+func NewService(repo Repository, store *storage.Storage, permissionService permissions.Service) Service {
+	return &fileService{repo: repo, store: store, permissions: permissionService}
 }
 
 func (s *fileService) SaveRoomFile(ctx context.Context, userID, roomID, fileName string, data []byte) (models.FileResponse, error) {
-	if err := s.ensureRoomAccess(ctx, userID, roomID); err != nil {
+	isDM, err := s.ensureRoomAccess(ctx, userID, roomID)
+	if err != nil {
 		return models.FileResponse{}, err
+	}
+
+	if !isDM {
+		allowed, err := s.permissions.CanSendRoom(ctx, userID, roomID)
+		if err != nil {
+			return models.FileResponse{}, err
+		}
+		if !allowed {
+			return models.FileResponse{}, errors.New("forbidden: you cannot send messages in this room")
+		}
 	}
 
 	format := extensionFor(fileName, data)
@@ -87,7 +100,7 @@ func (s *fileService) ResolveAttachment(ctx context.Context, fileID string) (mod
 }
 
 func (s *fileService) OpenRoomFile(ctx context.Context, userID, roomID, fileID string) (io.ReadCloser, string, error) {
-	if err := s.ensureRoomAccess(ctx, userID, roomID); err != nil {
+	if _, err := s.ensureRoomAccess(ctx, userID, roomID); err != nil {
 		return nil, "", err
 	}
 
@@ -128,30 +141,38 @@ func (s *fileService) OpenProfilePhoto(ctx context.Context, userID string) (io.R
 	return s.store.Open(storage.ProfilePhotoRelPath(userID))
 }
 
-// ensureRoomAccess allows any authenticated user into a public room, but only a
-// participant into a direct message.
-func (s *fileService) ensureRoomAccess(ctx context.Context, userID, roomID string) error {
+// ensureRoomAccess allows any authenticated user into an open public room or
+// one they hold `room.view` for, but only a participant into a direct message.
+// It returns whether the room is a DM, which decides if send access applies.
+func (s *fileService) ensureRoomAccess(ctx context.Context, userID, roomID string) (bool, error) {
 	isDM, exists, err := s.repo.RoomIsDM(ctx, roomID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !exists {
-		return errors.New("not_found: target room does not exist")
+		return false, errors.New("not_found: target room does not exist")
 	}
 
 	if !isDM {
-		return nil
+		allowed, err := s.permissions.CanViewRoom(ctx, userID, roomID)
+		if err != nil {
+			return false, err
+		}
+		if !allowed {
+			return false, errors.New("forbidden: you cannot view this room")
+		}
+		return false, nil
 	}
 
 	isParticipant, err := s.repo.IsRoomParticipant(ctx, roomID, userID)
 	if err != nil {
-		return err
+		return true, err
 	}
 	if !isParticipant {
-		return errors.New("forbidden: you are not a participant of this direct message room")
+		return true, errors.New("forbidden: you are not a participant of this direct message room")
 	}
 
-	return nil
+	return true, nil
 }
 
 // urlPath is the server-relative URL a stored file is served from. The client

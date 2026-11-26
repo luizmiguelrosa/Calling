@@ -1,9 +1,11 @@
 package main
 
 import (
+	"chat-backend/internal/admin"
 	"chat-backend/internal/chat"
 	"chat-backend/internal/container"
 	"chat-backend/internal/files"
+	"chat-backend/internal/permissions"
 	"chat-backend/internal/user"
 	"context"
 	"log"
@@ -15,15 +17,15 @@ import (
 )
 
 func main() {
-	log.Println("Iniciando servidor... 🚀")
+	log.Println("Starting server")
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{"*"}, // No futuro, você coloca o endereço do Tauri aqui
-		AllowedMethods: []string{"GET", "POST", "OPTIONS"},
+		AllowedOrigins: []string{"*"}, // Replace with the Tauri origin for a production deployment.
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Accept", "Content-Type", "Authorization"},
 	}))
 
@@ -34,10 +36,12 @@ func main() {
 		managerChat *chat.Manager,
 		userHandler *user.Handler,
 		filesHandler *files.Handler,
+		adminHandler *admin.Handler,
+		permissionService permissions.Service,
 		authMiddleware func(http.Handler) http.Handler,
 	) {
-		// Public routes
-		r.Post("/users", userHandler.Register)
+		// Public routes. Accounts are created from the admin panel, so there is no
+		// self-registration endpoint.
 		r.Post("/users/login", userHandler.Login)
 		r.Post("/users/refresh", userHandler.Refresh)
 
@@ -45,7 +49,15 @@ func main() {
 		r.Group(func(r chi.Router) {
 			r.Use(authMiddleware)
 			r.Get("/users", userHandler.GetUser)
+			r.Put("/users/me/password", userHandler.ChangePassword)
+			r.Get("/me/permissions", adminHandler.GetMyPermissions)
+			// Selectors need the role names and colours without the
+			// member/permission payload; this is readable by any signed-in user.
+			r.Get("/roles", adminHandler.ListRoleOptions)
+			// Group roster for @group: mentions and autocomplete.
+			r.Get("/groups", adminHandler.ListGroupOptions)
 			r.Get("/history", managerChat.GetHistory)
+			r.Get("/messages/{id}", managerChat.GetMessage)
 			r.Get("/users/online", managerChat.GetOnlineUsers)
 			r.Post("/rooms", managerChat.CreateRoom)
 			r.Get("/rooms", managerChat.ListRooms)
@@ -65,16 +77,50 @@ func main() {
 			// by any signed-in user.
 			r.Post("/users/me/photo", filesHandler.UploadProfilePhoto)
 			r.Get("/files/users/{file}", filesHandler.ServeProfilePhoto)
+
+			// Administration. Each category has its own permission, so a group
+			// holding only one of them reaches only that part of the panel.
+			r.Route("/admin", func(r chi.Router) {
+				r.With(permissions.Require(permissionService, permissions.UsersManage)).Get("/users", adminHandler.ListUsers)
+				r.With(permissions.Require(permissionService, permissions.UsersManage)).Post("/users", adminHandler.CreateUser)
+				r.With(permissions.Require(permissionService, permissions.UsersManage)).Put("/users/{id}", adminHandler.UpdateUser)
+				r.With(permissions.Require(permissionService, permissions.UsersManage)).Delete("/users/{id}", adminHandler.DeleteUser)
+
+				r.With(permissions.Require(permissionService, permissions.GroupsManage)).Get("/groups", adminHandler.ListGroups)
+				r.With(permissions.Require(permissionService, permissions.GroupsManage)).Get("/groups/{id}", adminHandler.GetGroup)
+				r.With(permissions.Require(permissionService, permissions.GroupsManage)).Post("/groups", adminHandler.CreateGroup)
+				r.With(permissions.Require(permissionService, permissions.GroupsManage)).Put("/groups/{id}", adminHandler.UpdateGroup)
+				r.With(permissions.Require(permissionService, permissions.GroupsManage)).Delete("/groups/{id}", adminHandler.DeleteGroup)
+				r.With(permissions.Require(permissionService, permissions.GroupsManage)).Delete("/groups/{id}/members/{userId}", adminHandler.RemoveGroupMember)
+				r.With(permissions.Require(permissionService, permissions.GroupsManage)).Put("/groups/{id}/permissions", adminHandler.SetGroupPermissions)
+
+				r.With(permissions.Require(permissionService, permissions.RolesManage)).Get("/roles", adminHandler.ListRoles)
+				r.With(permissions.Require(permissionService, permissions.RolesManage)).Get("/roles/{id}", adminHandler.GetRole)
+				r.With(permissions.Require(permissionService, permissions.RolesManage)).Post("/roles", adminHandler.CreateRole)
+				r.With(permissions.Require(permissionService, permissions.RolesManage)).Put("/roles/{id}", adminHandler.UpdateRole)
+				r.With(permissions.Require(permissionService, permissions.RolesManage)).Delete("/roles/{id}", adminHandler.DeleteRole)
+
+				// The rooms category is also where a public room is created, so a
+				// group holding only `rooms.create` can reach the list behind it.
+				// The permissions payload stays behind rooms.view/rooms.edit,
+				// because creation does not need to know who may already read it.
+				r.With(permissions.RequireAny(permissionService, permissions.RoomsView, permissions.RoomsEdit, permissions.RoomsCreate)).Get("/rooms", adminHandler.ListRooms)
+				r.With(permissions.RequireAny(permissionService, permissions.RoomsView, permissions.RoomsEdit)).Get("/rooms/{id}/permissions", adminHandler.GetRoomPermissions)
+				r.With(permissions.Require(permissionService, permissions.RoomsEdit)).Put("/rooms/{id}", adminHandler.UpdateRoom)
+				r.With(permissions.Require(permissionService, permissions.RoomsEdit)).Put("/rooms/{id}/permissions", adminHandler.SetRoomPermissions)
+
+				r.With(permissions.Require(permissionService, permissions.RolesManage)).Get("/permissions", adminHandler.PermissionCatalog)
+			})
 		})
 	})
 
 	if err != nil {
-		log.Fatal("Erro crítico ao injetar dependências: ", err)
+		log.Fatal("Fatal error injecting dependencies: ", err)
 	}
 
 	port := ":8080"
-	log.Printf("Servidor online em http://localhost%s", port)
+	log.Printf("Server listening on http://localhost%s", port)
 	if err := http.ListenAndServe(port, r); err != nil {
-		log.Fatal("Erro crítico no servidor: ", err)
+		log.Fatal("Fatal server error: ", err)
 	}
 }

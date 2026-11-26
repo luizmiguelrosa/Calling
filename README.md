@@ -1,8 +1,8 @@
-# Calling
+# Talk
 
-**Calling** is a proof-of-concept (POC) internal chat application built to deliver a Slack/Teams-style experience at a fraction of the resource cost. Instead of bundling a full Chromium browser per user like Electron clients, it pairs a **Go** backend with a **Tauri (Rust)** desktop client that renders in the operating system's native webview.
+**Talk** is a proof-of-concept (POC) internal chat application built to deliver a Slack/Teams-style experience at a fraction of the resource cost. Instead of bundling a full Chromium browser per user like Electron clients, it pairs a **Go** backend with a **Tauri (Rust)** desktop client that renders in the operating system's native webview.
 
-> Calling is a **POC**. It validates the architecture; it is not production-hardened. See [Known limitations](#known-limitations).
+> Talk is a **POC**. It validates the architecture; it is not production-hardened. See [Known limitations](#known-limitations).
 
 ---
 
@@ -24,7 +24,7 @@
 
 Traditional chat clients built on Electron (Slack, Teams, and similar) ship an entire browser engine to every user, which means high RAM and CPU usage, larger installs, and more battery drain. For an internal chat used constantly by many people, that overhead is a real cost.
 
-Calling takes the opposite approach:
+Talk takes the opposite approach:
 
 | Layer | Technology | Why |
 |-------|-----------|-----|
@@ -59,8 +59,10 @@ The backend follows a **handler → service → repository** separation:
 - **Handler** (`internal/chat/handler.go`) — HTTP handlers and WebSocket lifecycle.
 - **Service** (`internal/chat/service.go`) — business rules (validation, DM permissions, room naming).
 - **Repository** (`internal/chat/repository.go`) — persistence backed by PostgreSQL.
-- **User module** (`internal/user/`) — registration, credential validation, and lookup.
+- **User module** (`internal/user/`) — credential validation and lookup.
 - **Files module** (`internal/files/`) — room-file and profile-photo uploads, access checks, and the serve endpoints.
+- **Admin module** (`internal/admin/`) — user, role, room, and permission management with soft deletion.
+- **Permissions module** (`internal/permissions/`) — the general permission catalog, per-room checks, and the route middleware.
 - **Storage module** (`internal/storage/`) — the configurable file root, the on-disk layout, and avatar processing.
 - **Auth module** (`internal/auth/`) — JWT `Claims` (carrying a `token_type`), token-pair generation (`GenerateTokenPair`), `ParseToken`, and request `Middleware`. Login and `POST /users/refresh` issue an access/refresh pair; the middleware accepts only access tokens.
 
@@ -68,23 +70,29 @@ The backend follows a **handler → service → repository** separation:
 
 ## Features
 
-- **Users** — register, login (credential validation + JWT issuance), and lookup. Passwords are hashed with **bcrypt**. Roles: `Developer`, `Admin`.
-- **JWT authentication** — login issues an HS256 access token valid for 1 hour plus a refresh token valid for 1 week; `POST /users/refresh` rotates the pair. The signing secret comes from `JWT_SECRET`. All routes except register, login, and refresh are protected.
-- **Public channels** — create and list public chat rooms.
+- **Users** — accounts are created from the admin panel; login validates credentials and issues an access/refresh pair. Passwords are hashed with **bcrypt**. Roles are admin-managed groups of users, each with a colour, and a user may hold several.
+- **JWT authentication** — login issues an HS256 access token valid for 1 hour plus a refresh token valid for 1 week; `POST /users/refresh` rotates the pair. The signing secret comes from `JWT_SECRET`. All routes except login and refresh are protected.
+- **Bootstrap system user** — a fresh database gets a `system` account (Admin role) so someone can create the first real users. `SYSTEM_USER_USERNAME`, `SYSTEM_USER_PASSWORD`, and `SYSTEM_USER_NAME` override it; the default password is `system1234` and should be changed from the account menu (“Alterar senha”).
+- **Password change** — every signed-in user can replace their password by providing the current one; the new password must be 8–72 characters. Existing tokens stay valid until they expire.
+- **Replies** — right-click a message and choose **Responder**; the composer shows the quoted message, and the sent message renders it above the text. Clicking the quote jumps to the original message (including across rooms). **Responder em particular** opens the author's DM, or creates it, and carries the quote there.
+- **User profile dialog** — clicking an author's name (or the DM header) shows the profile with the person's roles as colour chips and their presence, plus a **Enviar mensagem** action that reuses the existing DM.
+- **Away detection** — losing focus, locking the screen, or two minutes without input flips presence to **Ausente**; activity restores the chosen status, and **Não perturbe** is never overridden.
+- **Admin panel** — `/admin` centralizes **Usuários**, **Cargos**, **Salas**, and **Permissões**. General permissions gate the categories; access is deny by default, so a role starts with no keys and an operator grants each one (only the Admin role is seeded). Per-room permissions decide who may view or send in each public room, granted either to individual users or to whole roles (members inherit the grant). Public rooms are created from the **Salas** category, behind `rooms.create`. Removed users and roles are soft-deleted: they disappear from every list, and the UI renders them as unknown.
+- **Public channels** — list and chat in public rooms; creation is an admin action.
 - **Direct messages (DMs)** — 1:1 private rooms between two users.
   - The room name is canonicalized as `{smaller_id}-{larger_id}`, so a user pair can never end up with two rooms.
   - Only participants can post in a DM; others receive an error.
   - DMs are isolated: a message is routed **only** to the other participant, never broadcast.
 - **Message history** per room, and an **online users** list.
 - **Real-time messaging** over a single WebSocket, with broadcast (public) and targeted (DM) delivery.
-- **Desktop client** — login, register, conversation rail, channel/DM views, and composer.
+- **Desktop client** — login, conversation rail, channel/DM views, and composer.
 - **Settings modal** — a searchable category tree with **Aparência** (dark mode), **Inicialização** (startup behaviour), **Perfil** (profile photo), and **Cache** (retention, usage, clear).
 - **Dark mode** — follows the OS preference until an explicit choice is made, then persists it.
 - **Startup preference** — on launch, either restore the last opened conversation or always open the home screen; the choice and the last route are stored per user.
 - **Typing indicators** — a typing signal is relayed over the socket while the other participant types and expires on its own if the "stopped" frame is lost.
 - **Session persistence** — a restart resumes the signed-in user; an expired access token is transparently refreshed, and only an unrecoverable `401` clears the session and returns to login.
 - **Notifications** — an OS notification for every incoming message, in any room; a public room is titled `#room_name`. Clicking it focuses the window and opens the conversation it came from. The taskbar button also flashes natively while the window is not in front.
-- **Mentions** — name people with `@username`, or everyone in a public room with `@all` (a group syntax `@group:<name>` is reserved but not implemented). `@all` is not offered in a direct message. Typing `@` opens an autocomplete above the composer that filters as you type; mentions render as chips, and clicking one opens the person's profile — or, for `@all`, the list of users. A mention titles the notification `Você foi mencionado em <room>` and adds an `@` badge to the room list, the DM list, and the sidebar rail.
+- **Mentions** - name people with `@username`, everyone in a public room with `@all`, or everyone holding a role with `@role:<name>`. `@all` is not offered in a direct message. Typing `@` opens an autocomplete above the composer that filters as you type; mentions render as chips, and clicking one opens the person's profile, the role's member list, or the list of users for `@all`. A mention titles the notification `Você foi mencionado em <room>` and adds an `@` badge to the room list, the DM list, and the sidebar rail.
 - **Unread indicators** — a per-room badge in the public room list, the DM list, and the sidebar rail, plus a dot on the rail's avatars when the sidebar is collapsed.
 - **Presence status** — the header's account menu sets **Online**, **Ausente**, or **Não perturbe**; the choice is announced over the socket so other users see it as a coloured dot on the avatar.
 - **Do Not Disturb and per-room mute** — silence the native notification and the taskbar flash while keeping unread counts.
@@ -102,38 +110,43 @@ The backend follows a **handler → service → repository** separation:
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
-| `POST` | `/users` | Register a new user | — |
 | `POST` | `/users/login` | Validate credentials and issue an access/refresh pair | — |
 | `POST` | `/users/refresh` | Exchange a refresh token for a new access/refresh pair | — |
-| `GET` | `/users` | User directory, or one user with `?user_id=` | JWT |
+| `GET` | `/users` | User directory, or one user with `?user_id=` (`null` when removed) | JWT |
+| `PUT` | `/users/me/password` | Change the signed-in user's password (current + new) | JWT |
+| `GET` | `/me/permissions` | General permissions of the signed-in user | JWT |
+| `GET` | `/roles` | Role id/name/colour pairs for selectors and `@role:` mentions | JWT |
 | `GET` | `/history` | Message history of a room (`?room_id=`) | JWT |
+| `GET` | `/messages/{id}` | One message, for a cross-room quote | JWT |
 | `GET` | `/users/online` | List currently connected users | JWT |
-| `POST` | `/rooms` | Create a public channel | JWT |
-| `GET` | `/rooms` | List **public** channels only (DMs excluded) | JWT |
+| `POST` | `/rooms` | Create a public channel (`rooms.create`); the admin panel's Salas category is the UI for it | JWT |
+| `GET` | `/rooms` | List public channels the user may view | JWT |
 | `POST` | `/rooms/dm` | Create a DM room (`receiver_id` in the body) | JWT |
 | `GET` | `/rooms/dm` | List the current user's DM rooms | JWT |
-| `POST` | `/messages/batch` | Store several messages for one room in one request | JWT |
+| `POST` | `/messages/batch` | Store several messages, each with an optional file and `reply_to_id` | JWT |
 | `POST` | `/rooms/{room_id}/files` | Upload a room file (multipart `file`); images preview inline, other types download | JWT |
 | `GET` | `/files/rooms/{room_id}/{file_id}.{format}` | Serve a room file to a user with access to the room | JWT |
 | `POST` | `/users/me/photo` | Upload a profile photo (multipart `file`) | JWT |
 | `GET` | `/files/users/{user_id}.jpg` | Serve a profile photo to any signed-in user | JWT |
+| `GET` | `/admin/...` | Admin users, roles, rooms, and permissions | JWT + permission |
 | `GET` | `/chat` | Upgrade to a WebSocket connection | JWT |
 
-All endpoints except `POST /users`, `POST /users/login`, and `POST /users/refresh` require a valid JWT in the `Authorization: Bearer <token>` header.
+All endpoints except `POST /users/login` and `POST /users/refresh` require a valid JWT in the `Authorization: Bearer <token>` header. There is no self-registration endpoint; accounts are created from the admin panel.
 
 ### Examples
 
-**Register**
+**Create a user (admin panel)**
 
 ```http
-POST /users
+POST /admin/users
+Authorization: Bearer <jwt-token>
 Content-Type: application/json
 
-{ "username": "alice", "password": "secret123", "name": "Alice", "role": "Developer" }
+{ "username": "alice", "password": "secret123", "name": "Alice", "email": "alice@example.com", "role_ids": ["role-developer"] }
 ```
 
 ```json
-{ "id": "1755000000000000000", "username": "alice", "name": "Alice", "role": "Developer" }
+{ "id": "1755000000000000000", "username": "alice", "name": "Alice", "email": "alice@example.com", "roles": [{ "id": "role-developer", "name": "Developer", "color": "#00519F" }] }
 ```
 
 **Login**
@@ -149,7 +162,7 @@ Content-Type: application/json
 {
   "accessToken": "<access-token>",
   "refreshToken": "<refresh-token>",
-  "user": { "id": "1755000000000000000", "username": "alice", "name": "Alice", "role": "Developer" }
+  "user": { "id": "1755000000000000000", "username": "alice", "name": "Alice", "roles": [{ "id": "role-developer", "name": "Developer", "color": "#00519F" }] }
 }
 ```
 
@@ -278,10 +291,12 @@ A typing frame is relayed to the other participant of a DM or to every other cli
    docker compose up -d
    ```
 
+   > **Renamed from Calling.** The database is now `talk_chat`. The init script only runs on an empty volume, so a `pgdata` volume created under the old name still holds `calling_chat` — run `docker compose down -v` once to recreate it. That drops the existing data.
+
 2. Configure the connection. Copy `.env.example` to `.env` or set `DATABASE_URL`:
 
    ```
-   DATABASE_URL=postgres://postgres:postgres@localhost:5432/calling_chat?sslmode=disable
+   DATABASE_URL=postgres://postgres:postgres@localhost:5432/talk_chat?sslmode=disable
    ```
 
 3. (Optional) Set a JWT signing secret. If `JWT_SECRET` is unset, a development default is used:
@@ -293,7 +308,7 @@ A typing frame is relayed to the other participant of a DM or to every other cli
 4. (Optional) Point uploads at a dedicated directory. If `FILES_DIR` is unset, files are written under `./files`:
 
    ```
-   FILES_DIR=/var/lib/calling/files
+   FILES_DIR=/var/lib/talk/files
    ```
 
 5. Run the server:
@@ -301,6 +316,8 @@ A typing frame is relayed to the other participant of a DM or to every other cli
    ```bash
    go run ./cmd/server
    ```
+
+   On an empty database the server creates the bootstrap **system** user (`system` / `system1234` by default, Admin role) so the first accounts can be created from the admin panel. Set `SYSTEM_USER_USERNAME`, `SYSTEM_USER_PASSWORD`, and `SYSTEM_USER_NAME` to choose your own, then change the password in the app under the account menu → **Alterar senha**.
 
 The server starts on `http://localhost:8080`.
 
@@ -327,10 +344,10 @@ npm run tauri dev
 
 The backend address is resolved once at startup, in this order:
 
-1. **`CALLING_API_URL`** in the process environment — set it before launching to pin a build to a fixed server. The address is then read-only in the app.
+1. **`TALKING_API_URL`** in the process environment — set it before launching to pin a build to a fixed server. The address is then read-only in the app.
 
    ```bash
-   CALLING_API_URL=http://192.168.0.10:8080 npm run tauri dev
+   TALKING_API_URL=http://192.168.0.10:8080 npm run tauri dev
    ```
 
 2. **The address saved in the client**, typed on the **Servidor** page and persisted in `localStorage`.
@@ -338,7 +355,7 @@ The backend address is resolved once at startup, in this order:
 
 A missing scheme is filled in as `http://`, so `192.168.0.10:8080` works.
 
-The login, register, and server-address windows are pinned to 480×720; the chat window takes the whole display. The app draws its own title bar because native decorations are disabled.
+The login and server-address windows are pinned to 480×720; the chat window takes the whole display. The app draws its own title bar because native decorations are disabled.
 
 To iterate on the UI in a browser instead of the desktop shell, run `npm start`. The custom title bar is hidden in that mode.
 
@@ -349,13 +366,13 @@ cd chat-frontend
 npm run tauri build
 ```
 
-Tauri names its bundles `Calling_<version>_<arch>`, which does not match the project's release convention. A post-build step (`scripts/rename-bundle.mjs`, wired as the `posttauri` npm script) renames the produced artifacts to `Calling_v<version>_<arch>` and copies out a portable build. Under `src-tauri/target/release/bundle` you get:
+Tauri names its bundles `Talk_<version>_<arch>`, which does not match the project's release convention. A post-build step (`scripts/rename-bundle.mjs`, wired as the `posttauri` npm script) renames the produced artifacts to `Talk_v<version>_<arch>` and copies out a portable build. Under `src-tauri/target/release/bundle` you get:
 
 | Artifact | Path |
 |----------|------|
-| Portable | `portable/Calling_v<version>_<arch>.exe` |
-| NSIS installer | `nsis/Calling_v<version>_<arch>-setup.exe` |
-| MSI | `msi/Calling_v<version>_<arch>_en-US.msi` |
+| Portable | `portable/Talk_v<version>_<arch>.exe` |
+| NSIS installer | `nsis/Talk_v<version>_<arch>-setup.exe` |
+| MSI | `msi/Talk_v<version>_<arch>_en-US.msi` |
 
 The portable is the raw binary and runs on its own, but still needs the WebView2 runtime installed. The version comes from `tauri.conf.json`, so it stays in sync with the release.
 
@@ -366,7 +383,7 @@ The portable is the raw binary and runs on its own, but still needs the WebView2
 ## Project structure
 
 ```
-Calling/
+Talk/
 ├── chat-backend/
 │   ├── cmd/server/          # Entry point (router, CORS, JWT middleware, DI wiring)
 │   ├── db/                  # schema.sql + queries.sql (sqlc source)
@@ -374,6 +391,8 @@ Calling/
 │   ├── sqlc.yaml            # sqlc configuration
 │   └── internal/
 │       ├── auth/            # JWT Claims, token generation, and middleware
+│       ├── admin/           # Admin users, roles, rooms, and permission management
+│       ├── permissions/     # Permission catalog, per-room checks, and route middleware
 │       ├── chat/            # Manager (WebSocket), Service, Repository
 │       ├── container/       # Dependency injection container (dig)
 │       ├── database/        # pgx connection pool + generated sqlc code
@@ -381,13 +400,13 @@ Calling/
 │       ├── httputil/        # Validation / JSON helpers
 │       ├── models/          # DTOs and domain models
 │       ├── storage/         # Configurable file root, on-disk layout, avatar processing
-│       └── user/            # Registration, credential validation, and lookup
+│       └── user/            # Credential validation and lookup
 └── chat-frontend/
     ├── src/app/
-    │   ├── components/      # auth (login, register), chat, dialog (new conversation, new room, mention), layout, settings
-    │   ├── guards/          # authGuard, guestGuard, startupGuard
+    │   ├── components/      # admin (incl. room creation), auth (login), chat, dialog (new conversation, mention, user info), layout, settings
+    │   ├── guards/          # authGuard, guestGuard, adminGuard, adminHomeGuard, adminCategoryGuard, startupGuard
     │   ├── interceptors/    # 401 → refresh the token, or clear the session and redirect to login
-    │   └── services/        # API config, auth, files, image cache, rooms, conversations, users, mentions, notifications, startup, status, theme, WebSocket, window
+    │   └── services/        # API config, admin, auth, files, image cache, rooms, conversations, users, mentions, notifications, permissions, startup, status, theme, WebSocket, window
     └── src-tauri/           # Rust shell, window config, capabilities
 ```
 
@@ -399,6 +418,7 @@ This is a POC. Deliberate gaps to be aware of before deploying anywhere real:
 
 - **Permissive CORS and WebSocket origin checks** — every origin is accepted. Fine for local/internal use, not production security.
 - **Default JWT secret** — without `JWT_SECRET` the server falls back to `dev-secret-change-me`.
+- **Default bootstrap password** — a fresh database starts with `system` / `system1234` unless the `SYSTEM_USER_*` variables override it. Change it immediately from the account menu; the password change does not revoke tokens already issued.
 - **Session in `localStorage`** — storage is shared per origin, so a second login in another window replaces the first window's identity.
 - **Refresh-token hardening is not implemented** — refresh rotation reuse detection, revocation, and secure storage are out of scope for now.
 - **Tests are limited** — the Go module only has unit tests for the file service (extension handling and download headers); the frontend has no test suite yet.

@@ -3,6 +3,7 @@ package chat
 import (
 	"chat-backend/internal/files"
 	"chat-backend/internal/models"
+	"chat-backend/internal/permissions"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,23 +16,28 @@ type Service interface {
 	ProcessAndStoreMessage(ctx context.Context, userID string, incoming models.IncomingMessage) (*models.MessageBroadcast, bool, error)
 	SendBatch(ctx context.Context, userID string, input models.BatchSendInput) ([]*models.MessageBroadcast, bool, error)
 	ResolveRoomAccess(ctx context.Context, userID string, roomID string) (bool, error)
-	GetRoomHistory(ctx context.Context, roomID string) ([]*models.MessageBroadcast, error)
+	GetRoomHistory(ctx context.Context, userID string, roomID string) ([]*models.MessageBroadcast, error)
+	// GetMessage resolves one message by id. A cross-room reply needs it: the
+	// composer in the DM can only carry the id of the message it quotes.
+	GetMessage(ctx context.Context, userID string, messageID int64) (*models.MessageBroadcast, error)
 	CreateChannel(ctx context.Context, input models.CreateRoomInput) (models.RoomResponse, error)
-	GetAvailableChannels(ctx context.Context) ([]models.RoomResponse, error)
+	GetAvailableChannels(ctx context.Context, userID string) ([]models.RoomResponse, error)
 	CreateDM(ctx context.Context, userID string, input models.CreateDMInput) (models.RoomResponse, error)
 	GetUserDMs(ctx context.Context, userID string) ([]models.DMRoomResponse, error)
 	GetDMParticipants(ctx context.Context, roomID string) ([]string, error)
 }
 
 type chatService struct {
-	repo  Repository
-	files files.Service
+	repo        Repository
+	files       files.Service
+	permissions permissions.Service
 }
 
-func NewService(repo Repository, fileService files.Service) Service {
+func NewService(repo Repository, fileService files.Service, permissionService permissions.Service) Service {
 	return &chatService{
-		repo:  repo,
-		files: fileService,
+		repo:        repo,
+		files:       fileService,
+		permissions: permissionService,
 	}
 }
 
@@ -41,14 +47,26 @@ func (s *chatService) ProcessAndStoreMessage(ctx context.Context, userID string,
 		return nil, false, err
 	}
 
-	stored, err := s.buildStored(ctx, userID, incoming.RoomID, incoming.Content, incoming.IsFile, incoming.FileID)
+	stored, err := s.buildStored(ctx, userID, incoming.RoomID, incoming.Content, incoming.IsFile, incoming.FileID, incoming.ReplyToID)
 	if err != nil {
 		return nil, false, err
 	}
 
-	if err := s.repo.SaveMessage(ctx, stored); err != nil {
+	if !isDM {
+		allowed, err := s.permissions.CanSendRoom(ctx, userID, incoming.RoomID)
+		if err != nil {
+			return nil, false, err
+		}
+		if !allowed {
+			return nil, false, errors.New("forbidden: you cannot send messages in this room")
+		}
+	}
+
+	id, err := s.repo.SaveMessage(ctx, stored)
+	if err != nil {
 		return nil, false, err
 	}
+	stored.ID = id
 
 	broadcast := s.toBroadcast(ctx, stored)
 
@@ -64,16 +82,28 @@ func (s *chatService) SendBatch(ctx context.Context, userID string, input models
 		return nil, false, err
 	}
 
+	if !isDM {
+		allowed, err := s.permissions.CanSendRoom(ctx, userID, input.RoomID)
+		if err != nil {
+			return nil, false, err
+		}
+		if !allowed {
+			return nil, false, errors.New("forbidden: you cannot send messages in this room")
+		}
+	}
+
 	messages := make([]*models.MessageBroadcast, 0, len(input.Messages))
 	for _, entry := range input.Messages {
-		stored, err := s.buildStored(ctx, userID, input.RoomID, entry.Content, entry.IsFile, entry.FileID)
+		stored, err := s.buildStored(ctx, userID, input.RoomID, entry.Content, entry.IsFile, entry.FileID, entry.ReplyToID)
 		if err != nil {
 			return nil, false, err
 		}
 
-		if err := s.repo.SaveMessage(ctx, stored); err != nil {
+		id, err := s.repo.SaveMessage(ctx, stored)
+		if err != nil {
 			return nil, false, err
 		}
+		stored.ID = id
 
 		broadcast := s.toBroadcast(ctx, stored)
 		messages = append(messages, broadcast)
@@ -86,7 +116,7 @@ func (s *chatService) SendBatch(ctx context.Context, userID string, input models
 // file message stores a JSON FileContent — the file id and the caption — rather
 // than the file's name, path and hash, which are resolved from the files table
 // when the message is delivered.
-func (s *chatService) buildStored(ctx context.Context, userID, roomID, content string, isFile bool, fileID string) (*models.StoredMessage, error) {
+func (s *chatService) buildStored(ctx context.Context, userID, roomID, content string, isFile bool, fileID string, replyToID *int64) (*models.StoredMessage, error) {
 	// The client identifies a message by its room, author, timestamp, and content
 	// to avoid appending a buffered broadcast twice after a history reload. It
 	// compares the timestamp as an instant, so the broadcast and the stored column
@@ -97,12 +127,22 @@ func (s *chatService) buildStored(ctx context.Context, userID, roomID, content s
 	sentAt := time.Now().UTC().Truncate(time.Microsecond)
 	caption := strings.TrimSpace(content)
 
+	if replyToID != nil {
+		// The parent may live in another room (a private reply quotes a public
+		// message), so only the row is checked for existence here; the reply
+		// snapshot stored on the message is resolved at delivery time.
+		if _, err := s.repo.GetMessageByID(ctx, *replyToID); err != nil {
+			return nil, errors.New("not_found: replied message does not exist")
+		}
+	}
+
 	if !isFile {
 		return &models.StoredMessage{
-			RoomID:  roomID,
-			Author:  userID,
-			Content: caption,
-			SentAt:  sentAt,
+			RoomID:    roomID,
+			Author:    userID,
+			Content:   caption,
+			ReplyToID: replyToID,
+			SentAt:    sentAt,
 		}, nil
 	}
 
@@ -118,11 +158,12 @@ func (s *chatService) buildStored(ctx context.Context, userID, roomID, content s
 	}
 
 	return &models.StoredMessage{
-		RoomID:  roomID,
-		Author:  userID,
-		Content: string(encoded),
-		IsFile:  true,
-		SentAt:  sentAt,
+		RoomID:    roomID,
+		Author:    userID,
+		Content:   string(encoded),
+		IsFile:    true,
+		ReplyToID: replyToID,
+		SentAt:    sentAt,
 	}, nil
 }
 
@@ -135,33 +176,69 @@ func (s *chatService) toBroadcast(ctx context.Context, stored *models.StoredMess
 		Author:  stored.Author,
 		Content: stored.Content,
 		IsFile:  stored.IsFile,
+		ID:      stored.ID,
 		SentAt:  stored.SentAt,
+	}
+
+	if stored.ReplyTo != nil {
+		broadcast.ReplyTo = s.resolveReplyReference(ctx, stored.ReplyTo)
 	}
 
 	if !stored.IsFile {
 		return broadcast
 	}
 
+	broadcast.Content = s.resolveAttachmentContent(ctx, stored.Content)
+	return broadcast
+}
+
+// resolveAttachmentContent turns a stored FileContent into the client-facing
+// FileAttachment. A malformed row is left as-is rather than dropped, so a
+// broken message still shows something.
+func (s *chatService) resolveAttachmentContent(ctx context.Context, raw string) string {
 	var content models.FileContent
-	if err := json.Unmarshal([]byte(stored.Content), &content); err != nil {
-		// A row that is not the expected JSON is left as-is rather than dropped,
-		// so a malformed message still shows something.
-		return broadcast
+	if err := json.Unmarshal([]byte(raw), &content); err != nil {
+		return raw
 	}
 
 	attachment, err := s.files.ResolveAttachment(ctx, content.FileID)
 	if err != nil {
-		return broadcast
+		return raw
 	}
 	attachment.Message = content.Message
 
 	encoded, err := json.Marshal(attachment)
 	if err != nil {
-		return broadcast
+		return raw
 	}
-	broadcast.Content = string(encoded)
+	return string(encoded)
+}
 
-	return broadcast
+// resolveReplyReference makes a quoted message's content the same client-facing
+// shape the message itself carries, so the client parses a file quote the same
+// way it parses a file message.
+func (s *chatService) resolveReplyReference(ctx context.Context, reference *models.ReplyReference) *models.ReplyReference {
+	resolved := *reference
+	if resolved.IsFile {
+		resolved.Content = s.resolveAttachmentContent(ctx, resolved.Content)
+	}
+	return &resolved
+}
+
+// GetMessage resolves one message for the composer of a cross-room reply. Access
+// is checked against the message's own room, since that is where the client will
+// jump when the quote is clicked.
+func (s *chatService) GetMessage(ctx context.Context, userID string, messageID int64) (*models.MessageBroadcast, error) {
+	stored, err := s.repo.GetMessageByID(ctx, messageID)
+	if err != nil {
+		return nil, errors.New("not_found: message does not exist")
+	}
+
+	if _, err := s.ResolveRoomAccess(ctx, userID, stored.RoomID); err != nil {
+		return nil, err
+	}
+
+	return s.toBroadcast(ctx, stored), nil
 }
 
 // ResolveRoomAccess validates that the room exists and, for a DM, that the user
@@ -181,19 +258,27 @@ func (s *chatService) ResolveRoomAccess(ctx context.Context, userID string, room
 		if !isParticipant {
 			return false, errors.New("forbidden: you are not a participant of this direct message room")
 		}
+		return true, nil
 	}
 
-	return isDM, nil
+	allowed, err := s.permissions.CanViewRoom(ctx, userID, roomID)
+	if err != nil {
+		return false, err
+	}
+	if !allowed {
+		return false, errors.New("forbidden: you cannot view this room")
+	}
+
+	return false, nil
 }
 
-func (s *chatService) GetRoomHistory(ctx context.Context, roomID string) ([]*models.MessageBroadcast, error) {
+func (s *chatService) GetRoomHistory(ctx context.Context, userID string, roomID string) ([]*models.MessageBroadcast, error) {
 	if roomID == "" {
 		return nil, errors.New("room_id cannot be empty")
 	}
 
-	_, _, exists, _ := s.repo.GetRoomMetadata(ctx, roomID)
-	if !exists {
-		return nil, errors.New("not_found: room does not exists")
+	if _, err := s.ResolveRoomAccess(ctx, userID, roomID); err != nil {
+		return nil, err
 	}
 
 	stored, err := s.repo.GetHistory(ctx, roomID)
@@ -234,8 +319,25 @@ func (s *chatService) CreateChannel(ctx context.Context, input models.CreateRoom
 		nil
 }
 
-func (s *chatService) GetAvailableChannels(ctx context.Context) ([]models.RoomResponse, error) {
-	return s.repo.ListRooms(ctx)
+func (s *chatService) GetAvailableChannels(ctx context.Context, userID string) ([]models.RoomResponse, error) {
+	rooms, err := s.repo.ListRooms(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// A room with explicit permissions is only listed for someone who may view
+	// it, so a restricted room does not advertise itself in the room list.
+	visible := make([]models.RoomResponse, 0, len(rooms))
+	for _, room := range rooms {
+		allowed, err := s.permissions.CanViewRoom(ctx, userID, room.ID)
+		if err != nil {
+			return nil, err
+		}
+		if allowed {
+			visible = append(visible, room)
+		}
+	}
+	return visible, nil
 }
 
 func (s *chatService) CreateDM(ctx context.Context, userID string, input models.CreateDMInput) (models.RoomResponse, error) {

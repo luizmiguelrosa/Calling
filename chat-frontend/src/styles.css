@@ -8,10 +8,17 @@
 
 :root {
   --radius: 0.625rem;
+  /* Palette source: the gradient of `src-tauri/icons/Talk logo.png`, sampled
+     across the bubbles (#003578 → #004998 → #00519F → #006AB2 → #0085CD →
+     #1A9BE3). `--primary` is the gradient's midpoint, `--mention` its deepest
+     stop and the chart ramp its five anchor stops, so the accent, focus ring and
+     mention chip all trace back to the icon instead of an unrelated hue. The
+     neutral surfaces carry a trace of the same hue (chroma 0.006–0.02 at 248°)
+     so they sit with the blue rather than beside it. */
   --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --foreground: oklch(0.17 0.015 250);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.17 0.015 250);
   /* App canvas behind the content card. The neutral scale has no gap wide
      enough to read between `background` and `muted` in light mode, so the
      tinted surface gets its own token instead of borrowing one. */
@@ -22,88 +29,91 @@
   /* Away shares the presence-dot treatment with online and dnd, so it needs a
      hue of its own; the neutral scale has none to borrow. */
   --away: oklch(0.78 0.16 75);
-  --canvas: oklch(0.94 0 0);
+  --canvas: oklch(0.96 0.006 248);
   /* Received message bubbles sit on the muted content card, so they cannot
      borrow `muted` — that is the surface behind them and they would vanish into
      it. This is one step away from the card in each theme. */
-  --bubble-received: oklch(0.9 0 0);
-  /* A mention chip is drawn inside a bubble, and the two bubble colours are
-     near-black (own) and near-white (received) in light mode. A filled chip is
-     the only treatment that reads on both, so the mention carries its own pair
+  --bubble-received: oklch(0.92 0.012 248);
+  /* A mention chip is drawn inside a bubble, and the two bubble colours are the
+     icon blue (own) and a near-white tint (received) in light mode. A filled chip
+     is the only treatment that reads on both, so the mention carries its own pair
      rather than borrowing a surface token that would vanish into one bubble. */
-  --mention: oklch(0.55 0.18 255);
+  --mention: oklch(0.3435 0.1257 257.73);
   --mention-foreground: oklch(0.99 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.17 0.015 250);
+  --primary: oklch(0.5128 0.1394 248.4);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.965 0.007 248);
+  --secondary-foreground: oklch(0.205 0.018 250);
+  --muted: oklch(0.965 0.007 248);
+  --muted-foreground: oklch(0.55 0.02 248);
+  --accent: oklch(0.965 0.007 248);
+  --accent-foreground: oklch(0.205 0.018 250);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.809 0.105 251.813);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.546 0.245 262.881);
-  --chart-4: oklch(0.488 0.243 264.376);
-  --chart-5: oklch(0.424 0.199 265.638);
+  --border: oklch(0.925 0.01 248);
+  --input: oklch(0.925 0.01 248);
+  --ring: oklch(0.5933 0.145 243.53);
+  --chart-1: oklch(0.6594 0.1475 241.1);
+  --chart-2: oklch(0.5933 0.145 243.53);
+  --chart-3: oklch(0.5128 0.1394 248.4);
+  --chart-4: oklch(0.4406 0.1435 254.69);
+  --chart-5: oklch(0.3435 0.1257 257.73);
   /* The rail shares the app bar's colour, so it is driven by the canvas rather
      than carrying a value of its own that would drift out of step with it. */
   --sidebar: var(--canvas);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-foreground: oklch(0.17 0.015 250);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.965 0.007 248);
+  --sidebar-accent-foreground: oklch(0.205 0.018 250);
+  --sidebar-border: oklch(0.925 0.01 248);
+  --sidebar-ring: var(--ring);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  --background: oklch(0.16 0.012 255);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: oklch(0.21 0.014 255);
   --card-foreground: oklch(0.985 0 0);
   --online: oklch(0.76 0.17 149);
   --away: oklch(0.82 0.16 80);
-  --canvas: oklch(0.145 0 0);
-  --bubble-received: oklch(0.34 0 0);
-  --mention: oklch(0.68 0.16 255);
-  --mention-foreground: oklch(0.16 0 0);
-  --popover: oklch(0.205 0 0);
+  --canvas: oklch(0.16 0.012 255);
+  --bubble-received: oklch(0.34 0.02 255);
+  --mention: oklch(0.9524 0.0196 245.64);
+  --mention-foreground: oklch(0.3435 0.1257 257.73);
+  --popover: oklch(0.21 0.014 255);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
+  --primary: oklch(0.5128 0.1394 248.4);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.27 0.016 255);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
+  --muted: oklch(0.27 0.016 255);
+  --muted-foreground: oklch(0.71 0.015 255);
+  --accent: oklch(0.27 0.016 255);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.205 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.809 0.105 251.813);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.546 0.245 262.881);
-  --chart-4: oklch(0.488 0.243 264.376);
-  --chart-5: oklch(0.424 0.199 265.638);
+  --ring: oklch(0.6594 0.1475 241.1);
+  /* The dark ramp starts a step lighter: the icon's deepest stop (#003578)
+     disappears against the dark canvas, so the same hue is carried by the
+     brighter end of the gradient instead. */
+  --chart-1: oklch(0.78 0.11 241);
+  --chart-2: oklch(0.6594 0.1475 241.1);
+  --chart-3: oklch(0.5933 0.145 243.53);
+  --chart-4: oklch(0.5128 0.1394 248.4);
+  --chart-5: oklch(0.4406 0.1435 254.69);
   --sidebar: var(--canvas);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.27 0.016 255);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar-ring: var(--ring);
 }
 
 

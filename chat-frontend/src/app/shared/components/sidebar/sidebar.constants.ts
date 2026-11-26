@@ -5,7 +5,7 @@ export const ZARD_SIDEBAR_WIDTH_MOBILE = '18rem';
 export const ZARD_SIDEBAR_WIDTH_ICON = '3rem';
 export const ZARD_SIDEBAR_KEYBOARD_SHORTCUT = 'b';
 /**
- * Calling is a desktop-only Tauri app, so there is no narrow viewport to fall back
+ * Talk is a desktop-only Tauri app, so there is no narrow viewport to fall back
  * to. A breakpoint that can never match keeps the sidebar rendering in-page at
  * every width instead of switching to the drawer branch of `z-sidebar`.
  *

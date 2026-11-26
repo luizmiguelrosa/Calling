@@ -1,9 +1,9 @@
 // Produces the project's release artifacts from what Tauri emits, under the
-// naming convention `Calling_v<version>_<arch>`:
+// naming convention `Talk_v<version>_<arch>`:
 //
-//   Calling_v<version>_<arch>.exe          portable (the raw binary)
-//   Calling_v<version>_<arch>-setup.exe    NSIS installer
-//   Calling_v<version>_<arch>_en-US.msi    MSI
+//   Talk_v<version>_<arch>.exe          portable (the raw binary)
+//   Talk_v<version>_<arch>-setup.exe    NSIS installer
+//   Talk_v<version>_<arch>_en-US.msi    MSI
 //
 // Tauri v2 has no config option for the bundle file name, so this runs after
 // `tauri build` (wired as the `posttauri` npm script) and rewrites the names in
@@ -40,7 +40,7 @@ const archNames = { x64: 'x64', arm64: 'arm64', ia32: 'x86' };
 const arch = archNames[process.arch] ?? process.arch;
 const exeExt = process.platform === 'win32' ? '.exe' : '';
 
-// `Calling_1.0.3_x64-setup.exe` -> `Calling_v1.0.3_x64-setup.exe`
+// `Talk_1.0.3_x64-setup.exe` -> `Talk_v1.0.3_x64-setup.exe`
 const oldPrefix = `${productName}_${version}_`;
 const newPrefix = `${productName}_v${version}_`;
 

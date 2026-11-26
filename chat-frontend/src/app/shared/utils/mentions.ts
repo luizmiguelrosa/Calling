@@ -35,7 +35,7 @@ export interface MentionContext {
 
 /** `@all` — every participant of the room. */
 const ALL_TOKEN = 'all';
-/** `@group:<name>` — a named set of users (not implemented yet). */
+/** `@group:<name>` — everyone who belongs to that group, resolved through the roster. */
 const GROUP_PREFIX = 'group:';
 
 /**
@@ -136,8 +136,8 @@ export function segmentMessage(
 
 /**
  * Whether a message names the given username. `@all` counts for everyone in a
- * room that allows it; `@group:` does not, because groups are not implemented
- * yet — once they are, membership has to be resolved here.
+ * room that allows it; `@group:` membership is resolved by `MentionService`,
+ * which has the roster this function deliberately does not take.
  */
 export function mentionsUser(content: string, username: string, context?: MentionContext): boolean {
   const target = username.toLowerCase();

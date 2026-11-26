@@ -21,7 +21,7 @@ import { WindowService } from '@/services/window.service';
   template: `
     <div class="flex h-9 select-none items-center border-b bg-sidebar" data-tauri-drag-region>
       <span class="flex-1 truncate px-3 text-xs font-medium text-muted-foreground" data-tauri-drag-region>
-        Calling
+        Talk
       </span>
 
       <div class="flex h-full items-stretch">

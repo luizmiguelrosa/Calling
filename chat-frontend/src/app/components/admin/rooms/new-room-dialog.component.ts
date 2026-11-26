@@ -18,10 +18,11 @@ const NAME_MIN = 1;
 const NAME_MAX = 64;
 
 /**
- * Body of the "Nova sala" dialog. The room is created on submit and the created
- * room is returned through the dialog ref, so the caller can both refresh its
- * list and open the new room — without the list having to know how creation
- * happened.
+ * Body of the "Nova sala" dialog, opened from the admin panel's Salas category.
+ * The room is created on submit and returned through the dialog ref, so the
+ * category can reload its table. Creation is not part of the chat shell: a
+ * public room changes who can reach the conversation, so it sits behind
+ * `rooms.create` in one place instead of beside the room list.
  */
 @Component({
   selector: 'app-new-room-dialog',

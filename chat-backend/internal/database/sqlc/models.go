@@ -6,6 +6,8 @@ package sqlc
 
 import (
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type File struct {
@@ -20,13 +22,40 @@ type File struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type Group struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Color     string    `json:"color"`
+	IsDeleted bool      `json:"is_deleted"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type GroupMember struct {
+	UserID  string `json:"user_id"`
+	GroupID string `json:"group_id"`
+}
+
+type GroupPermission struct {
+	GroupID    string `json:"group_id"`
+	Permission string `json:"permission"`
+}
+
 type Message struct {
-	ID       int64     `json:"id"`
-	RoomID   string    `json:"room_id"`
-	Author   string    `json:"author"`
-	Content  string    `json:"content"`
-	IsFile   bool      `json:"is_file"`
-	SendedAt time.Time `json:"sended_at"`
+	ID        int64       `json:"id"`
+	RoomID    string      `json:"room_id"`
+	Author    string      `json:"author"`
+	Content   string      `json:"content"`
+	IsFile    bool        `json:"is_file"`
+	ReplyToID pgtype.Int8 `json:"reply_to_id"`
+	SendedAt  time.Time   `json:"sended_at"`
+}
+
+type Role struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Color     string    `json:"color"`
+	IsDeleted bool      `json:"is_deleted"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Room struct {
@@ -36,16 +65,31 @@ type Room struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type RoomGroupPermission struct {
+	RoomID     string `json:"room_id"`
+	GroupID    string `json:"group_id"`
+	Permission string `json:"permission"`
+}
+
 type RoomParticipant struct {
 	RoomID string `json:"room_id"`
 	UserID string `json:"user_id"`
 }
 
+type RoomPermission struct {
+	RoomID     string `json:"room_id"`
+	UserID     string `json:"user_id"`
+	Permission string `json:"permission"`
+}
+
 type User struct {
-	ID        string    `json:"id"`
-	Username  string    `json:"username"`
-	Password  string    `json:"password"`
-	Name      string    `json:"name"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string      `json:"id"`
+	Username  string      `json:"username"`
+	Password  string      `json:"password"`
+	Name      string      `json:"name"`
+	Role      string      `json:"role"`
+	Email     string      `json:"email"`
+	RoleID    pgtype.Text `json:"role_id"`
+	IsDeleted bool        `json:"is_deleted"`
+	CreatedAt time.Time   `json:"created_at"`
 }

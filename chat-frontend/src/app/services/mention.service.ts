@@ -1,9 +1,10 @@
 import { Injectable, effect, inject, signal } from '@angular/core';
 
-import { mentionsUser } from '@/shared/utils/mentions';
+import { mentionsUser, findMentionTokens } from '@/shared/utils/mentions';
 
 import { AuthService } from './auth.service';
 import { ConversationService } from './conversation.service';
+import { UserService } from './user.service';
 import { WebSocketService } from './websocket.service';
 
 /**
@@ -21,6 +22,7 @@ export class MentionService {
   private readonly socket = inject(WebSocketService);
   private readonly authService = inject(AuthService);
   private readonly conversations = inject(ConversationService);
+  private readonly userService = inject(UserService);
 
   /** Unread mention count per room id; a room absent from the map has none. */
   readonly unread = signal<Record<string, number>>({});
@@ -79,16 +81,35 @@ export class MentionService {
    * Whether the signed-in user is named by a message. Own messages never count,
    * and a mention is matched against the username — the token a sender types is
    * the username, not the display name. `@all` only counts in a public room: a
-   * direct message has no audience for it.
+   * direct message has no audience for it. A group token counts when it names any
+   * group the user belongs to, since a user may hold several.
    */
   mentionsMe(message: MessageBroadcast): boolean {
     const username = this.authService.getUsername();
-    if (!username || message.author === this.authService.getUserId()) {
+    const userId = this.authService.getUserId();
+    const groupNames = new Set(
+      (this.authService.getCurrentUser()?.groups ?? []).map(group => group.name.toLowerCase()),
+    );
+    if (!username || message.author === userId) {
       return false;
     }
 
     const isDm = this.conversations.dms().some(dm => dm.id === message.room_id);
-    return mentionsUser(message.content, username, { allowAll: !isDm });
+    if (mentionsUser(message.content, username, { allowAll: !isDm })) {
+      return true;
+    }
+
+    // `@group:<name>` names everyone belonging to that group. The signed-in group set
+    // comes from the session, so the directory is not needed to answer this.
+    const groupPrefix = 'group:';
+    for (const { token } of findMentionTokens(message.content)) {
+      const lower = token.toLowerCase();
+      if (lower.startsWith(groupPrefix) && groupNames.has(lower.slice(groupPrefix.length))) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   unreadFor(roomId: string): number {

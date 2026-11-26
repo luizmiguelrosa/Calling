@@ -375,20 +375,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "calling"
-version = "1.2.0"
-dependencies = [
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
-]
-
-[[package]]
 name = "camino"
 version = "1.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3408,6 +3394,20 @@ dependencies = [
  "pkg-config",
  "toml 0.8.2",
  "version-compare",
+]
+
+[[package]]
+name = "talk"
+version = "1.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
 ]
 
 [[package]]

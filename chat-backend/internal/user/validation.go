@@ -11,3 +11,7 @@ func (c CreateUserInput) Validate() error {
 func (l LoginInput) Validate() error {
 	return validate.Struct(l)
 }
+
+func (c ChangePasswordInput) Validate() error {
+	return validate.Struct(c)
+}

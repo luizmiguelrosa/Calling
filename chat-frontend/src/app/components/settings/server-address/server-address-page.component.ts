@@ -79,7 +79,7 @@ type ProbeState = 'idle' | 'checking' | 'ok' | 'failed';
                     <z-field-error>Informe uma URL válida, como http://localhost:8080</z-field-error>
                   } @else if (config.locked()) {
                     <p z-field-description>
-                      Definido pela variável de ambiente <code>CALLING_API_URL</code>. Não pode ser alterado aqui.
+                      Definido pela variável de ambiente <code>TALKING_API_URL</code>. Não pode ser alterado aqui.
                     </p>
                   } @else {
                     <p z-field-description>

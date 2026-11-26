@@ -15,6 +15,7 @@ import { ZardFieldImports } from '@/shared/components/field';
 
 import { ApiConfigService } from '@/services/api-config.service';
 import { AuthService } from '@/services/auth.service';
+import { PermissionService } from '@/services/permission.service';
 import { UserService } from '@/services/user.service';
 import { WebSocketService } from '@/services/websocket.service';
 
@@ -47,6 +48,7 @@ export class LoginComponent {
   private readonly router = inject(Router);
   private readonly socket = inject(WebSocketService);
   private readonly userService = inject(UserService);
+  private readonly permissionService = inject(PermissionService);
   private readonly config = inject(ApiConfigService);
 
   protected readonly isLoading = signal(false);
@@ -125,6 +127,9 @@ export class LoginComponent {
       }
 
       this.authService.setSession(response);
+      // A fresh login may be a different user, so the previous permission set is
+      // dropped before the admin entry would read it.
+      this.permissionService.reset();
       this.socket.connect();
       this.userService.loadOnline();
       void this.router.navigate(['/chat']);

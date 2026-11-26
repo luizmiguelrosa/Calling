@@ -99,12 +99,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(LoginResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		User: UserResponse{
-			ID:       u.ID,
-			Username: u.Username,
-			Name:     u.Name,
-			Role:     u.Role,
-		},
+		User:         response(u),
 	})
 }
 
@@ -148,6 +143,40 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(TokenPair{AccessToken: accessToken, RefreshToken: refreshToken})
 }
 
+// ChangePassword replaces the signed-in user's password after verifying the
+// current one. It is self-service for every account, including the bootstrap
+// system user, which is how the default credentials are retired.
+func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"message": "unauthorized: missing user identity"})
+		return
+	}
+
+	input, valid := httputil.ReadAndValidate[ChangePasswordInput](w, r)
+	if !valid {
+		return
+	}
+
+	if err := h.service.ChangePassword(r.Context(), userID, input.CurrentPassword, input.NewPassword); err != nil {
+		switch {
+		case strings.HasPrefix(err.Error(), "unauthorized"):
+			w.WriteHeader(http.StatusUnauthorized)
+		case strings.HasPrefix(err.Error(), "not_found"):
+			w.WriteHeader(http.StatusNotFound)
+		case strings.HasPrefix(err.Error(), "invalid"):
+			w.WriteHeader(http.StatusBadRequest)
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		json.NewEncoder(w).Encode(map[string]string{"message": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // GetUser serves both shapes of GET /users: with `user_id` it returns that one
 // user, without it the whole directory. chi cannot mount two handlers on a single
 // method+path, and the directory listing backs the conversation picker.
@@ -161,21 +190,20 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 	u, err := h.service.GetByID(r.Context(), userID)
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "not_found") {
-			w.WriteHeader(http.StatusNotFound)
-		} else {
-			w.WriteHeader(http.StatusInternalServerError)
+			// A removed user is a null lookup, not an error: the caller is asking
+			// whether the account still exists. The UI renders "Usuário
+			// desconhecido" from the null/directory miss.
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(nil)
+			return
 		}
+		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"message": err.Error()})
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(UserResponse{
-		ID:       u.ID,
-		Username: u.Username,
-		Name:     u.Name,
-		Role:     u.Role,
-	})
+	json.NewEncoder(w).Encode(response(u))
 }
 
 func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {

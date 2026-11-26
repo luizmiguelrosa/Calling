@@ -6,27 +6,77 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	AddGroupMember(ctx context.Context, arg AddGroupMemberParams) error
+	AddGroupPermission(ctx context.Context, arg AddGroupPermissionParams) error
+	AddRoomGroupPermission(ctx context.Context, arg AddRoomGroupPermissionParams) error
 	AddRoomParticipant(ctx context.Context, arg AddRoomParticipantParams) error
+	AddRoomPermission(ctx context.Context, arg AddRoomPermissionParams) error
+	CreateAdminUser(ctx context.Context, arg CreateAdminUserParams) error
 	CreateFile(ctx context.Context, arg CreateFileParams) error
+	CreateGroup(ctx context.Context, arg CreateGroupParams) error
+	CreateRole(ctx context.Context, arg CreateRoleParams) error
 	CreateRoom(ctx context.Context, arg CreateRoomParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
+	DeleteGroupMembers(ctx context.Context, userID string) error
+	DeleteGroupPermissions(ctx context.Context, groupID string) error
+	DeleteRoomGroupPermissionsForGroup(ctx context.Context, arg DeleteRoomGroupPermissionsForGroupParams) error
+	DeleteRoomPermissionsForUser(ctx context.Context, arg DeleteRoomPermissionsForUserParams) error
+	GetAdminUser(ctx context.Context, id string) (GetAdminUserRow, error)
 	GetDMParticipants(ctx context.Context, roomID string) ([]string, error)
 	GetFile(ctx context.Context, id string) (File, error)
+	GetGroup(ctx context.Context, id string) (GetGroupRow, error)
+	GetGroupByName(ctx context.Context, name string) (GetGroupByNameRow, error)
 	GetHistory(ctx context.Context, roomID string) ([]GetHistoryRow, error)
+	GetMessageByID(ctx context.Context, id int64) (GetMessageByIDRow, error)
+	GetRole(ctx context.Context, id string) (GetRoleRow, error)
 	GetRoomMetadata(ctx context.Context, id string) (GetRoomMetadataRow, error)
-	GetUserByID(ctx context.Context, id string) (User, error)
-	GetUserByUsername(ctx context.Context, username string) (User, error)
+	GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error)
+	GetUserByUsername(ctx context.Context, username string) (GetUserByUsernameRow, error)
+	GetUserRole(ctx context.Context, id string) (GetUserRoleRow, error)
+	GroupNameExistsExcluding(ctx context.Context, arg GroupNameExistsExcludingParams) (bool, error)
 	IsRoomParticipant(ctx context.Context, arg IsRoomParticipantParams) (bool, error)
+	ListAdminUsers(ctx context.Context) ([]ListAdminUsersRow, error)
+	ListAllRooms(ctx context.Context) ([]ListAllRoomsRow, error)
+	ListAllUserGroups(ctx context.Context) ([]ListAllUserGroupsRow, error)
+	ListAllUserRoles(ctx context.Context) ([]ListAllUserRolesRow, error)
+	ListGroupMembers(ctx context.Context, groupID string) ([]ListGroupMembersRow, error)
+	ListGroupPermissions(ctx context.Context, groupID string) ([]string, error)
+	ListGroups(ctx context.Context) ([]ListGroupsRow, error)
+	ListRoleMembers(ctx context.Context, roleID pgtype.Text) ([]ListRoleMembersRow, error)
+	ListRoles(ctx context.Context) ([]ListRolesRow, error)
+	ListRoomGroupPermissions(ctx context.Context, roomID string) ([]ListRoomGroupPermissionsRow, error)
+	ListRoomPermissions(ctx context.Context, roomID string) ([]ListRoomPermissionsRow, error)
 	ListRooms(ctx context.Context) ([]ListRoomsRow, error)
 	ListUserDMs(ctx context.Context, userID string) ([]ListUserDMsRow, error)
+	ListUserGroupsForUser(ctx context.Context, userID string) ([]ListUserGroupsForUserRow, error)
+	ListUserPermissions(ctx context.Context, userID string) ([]string, error)
 	ListUsers(ctx context.Context) ([]ListUsersRow, error)
+	LiveUserExists(ctx context.Context) (bool, error)
+	RemoveGroupMember(ctx context.Context, arg RemoveGroupMemberParams) error
+	RenameRoom(ctx context.Context, arg RenameRoomParams) error
+	ReviveUserByUsername(ctx context.Context, arg ReviveUserByUsernameParams) error
+	RoleNameExistsExcluding(ctx context.Context, arg RoleNameExistsExcludingParams) (bool, error)
 	RoomExistsByName(ctx context.Context, name string) (bool, error)
-	SaveMessage(ctx context.Context, arg SaveMessageParams) error
+	RoomHasExplicitPermissions(ctx context.Context, roomID string) (pgtype.Bool, error)
+	RoomNameExistsExcluding(ctx context.Context, arg RoomNameExistsExcludingParams) (bool, error)
+	SaveMessage(ctx context.Context, arg SaveMessageParams) (int64, error)
+	SetUserRole(ctx context.Context, arg SetUserRoleParams) error
+	SoftDeleteGroup(ctx context.Context, id string) error
+	SoftDeleteRole(ctx context.Context, id string) error
+	SoftDeleteUser(ctx context.Context, id string) error
+	UpdateGroup(ctx context.Context, arg UpdateGroupParams) error
+	UpdateRole(ctx context.Context, arg UpdateRoleParams) error
+	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
+	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	UserExistsByID(ctx context.Context, id string) (bool, error)
 	UserExistsByUsername(ctx context.Context, username string) (bool, error)
+	UserHasPermission(ctx context.Context, arg UserHasPermissionParams) (bool, error)
+	UserHasRoomPermission(ctx context.Context, arg UserHasRoomPermissionParams) (pgtype.Bool, error)
 }
 
 var _ Querier = (*Queries)(nil)

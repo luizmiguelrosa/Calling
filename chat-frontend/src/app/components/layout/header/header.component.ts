@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { Router } from '@angular/router';
 
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideCheck, lucideLogOut, lucideMenu, lucideSettings } from '@ng-icons/lucide';
+import { lucideCheck, lucideKeyRound, lucideLogOut, lucideMenu, lucideSettings, lucideShield } from '@ng-icons/lucide';
 
 import { ZardAvatarComponent } from '@/shared/components/avatar/avatar.component';
 import { ZardButtonComponent } from '@/shared/components/button';
@@ -16,6 +16,7 @@ import { SettingsDialogComponent } from '@/components/settings/settings-dialog/s
 import { UserAvatarComponent } from '@/components/shared/user-avatar/user-avatar.component';
 
 import { AuthService } from '@/services/auth.service';
+import { PermissionService } from '@/services/permission.service';
 import { StatusService } from '@/services/status.service';
 import { WebSocketService } from '@/services/websocket.service';
 
@@ -42,7 +43,7 @@ import { WebSocketService } from '@/services/websocket.service';
         <ng-icon name="lucideMenu" />
       </button>
 
-      <p class="text-lg font-medium">Calling</p>
+      <p class="text-lg font-medium">Talk</p>
 
       <!-- The service reconnects on its own, so the pill is a status, not an
            action: it disappears the moment a reconnect succeeds. -->
@@ -118,6 +119,18 @@ import { WebSocketService } from '@/services/websocket.service';
 
           <z-separator />
 
+          @if (permissionService.hasAdminAccess()) {
+            <button z-button zType="ghost" class="w-full justify-start gap-2" (click)="openAdmin()">
+              <ng-icon name="lucideShield" />
+              Administração
+            </button>
+          }
+
+          <button z-button zType="ghost" class="w-full justify-start gap-2" (click)="openChangePassword()">
+            <ng-icon name="lucideKeyRound" />
+            Alterar senha
+          </button>
+
           <button z-button zType="ghost" class="w-full justify-start gap-2" (click)="openSettings()">
             <ng-icon name="lucideSettings" />
             Configurações
@@ -132,7 +145,7 @@ import { WebSocketService } from '@/services/websocket.service';
     </header>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  viewProviders: [provideIcons({ lucideMenu, lucideLogOut, lucideSettings, lucideCheck })],
+  viewProviders: [provideIcons({ lucideMenu, lucideLogOut, lucideSettings, lucideCheck, lucideShield, lucideKeyRound })],
 })
 export class HeaderComponent {
   private readonly sidebar = inject(ZardSidebarService);
@@ -142,6 +155,7 @@ export class HeaderComponent {
   private readonly router = inject(Router);
 
   protected readonly statusService = inject(StatusService);
+  protected readonly permissionService = inject(PermissionService);
 
   /** The three availability states offered by the account menu. */
   protected readonly statusOptions: readonly { value: UserStatus; label: string; dotClass: string }[] = [
@@ -188,6 +202,33 @@ export class HeaderComponent {
     this.sidebar.toggleSidebar();
   }
 
+  constructor() {
+    // The admin entry is drawn from the permission set, so it has to be fetched
+    // once the session exists. A failure simply leaves the entry hidden.
+    this.permissionService.loadOnce().subscribe({ error: () => undefined });
+  }
+
+  protected openAdmin(): void {
+    void this.router.navigate(['/admin']);
+  }
+
+  /**
+   * The dialog is imported on demand: it is only reachable from this menu, and
+   * `zContent` needs the component type up front.
+   */
+  protected async openChangePassword(): Promise<void> {
+    const { ChangePasswordDialogComponent } = await import(
+      '@/components/settings/change-password/change-password-dialog.component'
+    );
+
+    this.dialogService.create({
+      zTitle: 'Alterar senha',
+      zContent: ChangePasswordDialogComponent,
+      zHideFooter: true,
+      zWidth: '24rem',
+    });
+  }
+
   protected setStatus(status: UserStatus): void {
     this.statusService.setStatus(status);
   }
@@ -212,6 +253,7 @@ export class HeaderComponent {
     // The socket carries the identity, so it has to go down with the session;
     // otherwise it would keep receiving as the signed-out user.
     this.socket.disconnect();
+    this.permissionService.reset();
     this.authService.logout();
     void this.router.navigate(['/login']);
   }

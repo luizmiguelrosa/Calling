@@ -24,6 +24,7 @@ import { UserAvatarComponent } from '@/components/shared/user-avatar/user-avatar
 
 import { AuthService } from '@/services/auth.service';
 import { UserService } from '@/services/user.service';
+import type { ReplyReference } from '@/types/message.type';
 
 /** A file staged for sending, with the bits its card needs to render. */
 interface StagedFile {
@@ -40,6 +41,8 @@ interface StagedFile {
 export interface OutgoingMessage {
   content: string;
   files: File[];
+  /** The message this one quotes, if the user chose Reply. */
+  replyToId?: number | null;
 }
 
 /** A row in the mention autocomplete. */
@@ -49,44 +52,24 @@ interface MentionOption {
   label: string;
   detail: string;
   kind: MentionKind;
-  /** The mentioned user, or null for the `@all` row. */
+  /** The mentioned user, or null for the `@all` and group rows. */
   userId: string | null;
 }
 
 /** How many autocomplete rows are offered at once. */
 const MAX_MENTION_OPTIONS = 8;
 
-/** The format label for a non-image card: the extension, or the MIME subtype. */
 function formatLabel(file: File): string {
-  const extension = file.name.includes('.') ? file.name.split('.').pop() ?? '' : '';
-  if (extension) {
-    return extension.toUpperCase().slice(0, 8);
-  }
-
-  const subtype = file.type.split('/')[1];
-  return subtype ? subtype.toUpperCase().slice(0, 8) : 'ARQUIVO';
+  const extension = file.name.split('.').pop()?.toUpperCase() ?? '';
+  const subtype = file.type.split('/')[1]?.toUpperCase() ?? '';
+  return extension || subtype || 'FILE';
 }
 
-/**
- * Composer at the foot of a conversation. Enter sends, Shift+Enter breaks the
- * line; the backend caps a message at 500 characters, so the counter is shown
- * only once the limit is in reach.
- *
- * Files are staged here and shown as a list above the input. They arrive by
- * paste, by drag and drop, or through the paperclip button, and the text typed
- * in the field is attached to the first file only — the rest travel as
- * attachment-only messages.
- *
- * Typing `@` opens an autocomplete above the field: a bare `@` lists everyone
- * plus `@all`, and each further character narrows the list. Arrow keys move the
- * highlight, Enter or Tab accepts, Escape dismisses.
- */
 @Component({
   selector: 'chat-message-input',
   standalone: true,
-  imports: [NgIcon, UserAvatarComponent, ZardButtonComponent, ZardTextareaComponent],
+  imports: [NgIcon, ZardButtonComponent, ZardTextareaComponent, UserAvatarComponent],
   host: {
-    class: 'block shrink-0 border-t bg-background/60 p-3 sm:p-4',
     '(paste)': 'onPaste($event)',
     '(dragover)': 'onDragOver($event)',
     '(dragleave)': 'onDragLeave($event)',
@@ -96,128 +79,126 @@ function formatLabel(file: File): string {
     '[class.ring-primary]': 'dragging()',
   },
   template: `
-    <div class="mx-auto w-full max-w-3xl">
+    <div class="flex flex-col gap-2">
+      @if (replyTo(); as reply) {
+        <div class="flex items-center gap-2 rounded-md bg-muted p-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-medium text-muted-foreground">Respondendo a</span>
+            <span class="truncate text-sm">{{ quoteAuthor(reply) }}</span>
+            <span class="truncate text-xs text-muted-foreground">{{ quoteText(reply) }}</span>
+          </div>
+          <button z-button zType="ghost" zSize="icon-sm" (click)="cancelReply.emit()">
+            <ng-icon name="lucideX" class="size-4" />
+          </button>
+        </div>
+      }
+
       @if (files().length > 0) {
-        <!-- The staged files sit above the input, each removable on its own. -->
-        <ul class="mb-2 flex flex-wrap gap-2">
-          @for (item of files(); track item.id) {
-            <li class="relative flex w-24 flex-col overflow-hidden rounded-lg border bg-card">
-              <button
-                type="button"
-                class="absolute top-1 right-1 z-10 grid size-5 place-items-center rounded-full bg-background/80 text-muted-foreground shadow-sm transition-colors hover:bg-destructive hover:text-destructive-foreground"
-                [attr.aria-label]="'Remover ' + item.file.name"
-                [attr.title]="'Remover ' + item.file.name"
-                (click)="removeFile(item.id)"
-              >
-                <ng-icon name="lucideX" class="size-3" />
+        <ul class="flex flex-wrap gap-2">
+          @for (file of files(); track file.id) {
+            <li class="flex items-center gap-2 rounded-md bg-muted p-1.5">
+              <button z-button zType="ghost" zSize="icon-sm" (click)="removeFile(file.id)">
+                <ng-icon name="lucideX" class="size-4" />
               </button>
-
-              <div class="grid h-16 w-full place-items-center overflow-hidden bg-muted">
-                @if (item.previewUrl) {
-                  <img [src]="item.previewUrl" [alt]="item.file.name" class="size-full object-cover" />
-                } @else {
-                  <span class="text-xs font-semibold tracking-wide text-muted-foreground">{{ item.label }}</span>
-                }
-              </div>
-
-              <span class="truncate px-1.5 py-1 text-[10px] text-muted-foreground">{{ item.file.name }}</span>
+              @if (file.previewUrl; as url) {
+                <div class="relative size-12 shrink-0 rounded overflow-hidden">
+                  <img [src]="url" [alt]="file.label" class="size-full object-cover" />
+                </div>
+              } @else {
+                <span class="flex size-12 shrink-0 items-center justify-center rounded bg-muted/50 text-xs font-medium text-muted-foreground">
+                  {{ file.label }}
+                </span>
+              }
+              <span class="truncate text-sm">{{ file.file.name }}</span>
             </li>
           }
         </ul>
       }
 
-      <div class="flex items-end gap-2">
-        <input #picker type="file" multiple hidden (change)="onFilesPicked($event)" />
+      <div class="relative flex-1">
+        <!-- Anchored to the field's own box so the list opens directly above it. -->
+        @if (mentionQuery() && mentionOptions().length > 0) {
+          <ul
+            class="absolute bottom-full left-0 z-20 mb-2 max-h-64 w-72 overflow-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
+            role="listbox"
+            aria-label="Menções"
+          >
+            @for (option of mentionOptions(); track option.token; let i = $index) {
+              <li role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  [attr.aria-selected]="i === selectedIndex()"
+                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                  [class.bg-accent]="i === selectedIndex()"
+                  [class.text-accent-foreground]="i === selectedIndex()"
+                  (mousedown)="selectMention(option, $event)"
+                >
+                  @if (option.userId; as userId) {
+                    <app-user-avatar [userId]="userId" [name]="option.label" />
+                  } @else {
+                    <span
+                      class="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
+                    >
+                      <ng-icon name="lucideUsers" class="size-3.5" />
+                    </span>
+                  }
+                  <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+                  <span class="shrink-0 truncate text-xs text-muted-foreground">{{ option.detail }}</span>
+                </button>
+              </li>
+            }
+          </ul>
+        }
+
+        <input
+          type="hidden"
+          [value]="value()"
+          (input)="onInput($event)"
+        />
 
         <button
           z-button
           zType="ghost"
-          zSize="icon-lg"
-          zShape="circle"
-          class="mb-0.5 shrink-0"
-          aria-label="Anexar arquivo"
-          title="Anexar arquivo"
+          zSize="icon-sm"
+          class="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
           (click)="openPicker()"
+          aria-label="Anexar arquivo"
         >
-          <ng-icon name="lucidePaperclip" />
+          <ng-icon name="lucidePaperclip" class="size-5" />
         </button>
 
         <div class="relative flex-1">
-          <!-- Anchored to the field's own box so the list opens directly above it. -->
-          @if (mentionQuery() && mentionOptions().length > 0) {
-            <ul
-              class="absolute bottom-full left-0 z-20 mb-2 max-h-64 w-72 overflow-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
-              role="listbox"
-              aria-label="Menções"
-            >
-              @for (option of mentionOptions(); track option.token; let i = $index) {
-                <li role="presentation">
-                  <button
-                    type="button"
-                    role="option"
-                    [attr.aria-selected]="i === selectedIndex()"
-                    class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-                    [class.bg-accent]="i === selectedIndex()"
-                    [class.text-accent-foreground]="i === selectedIndex()"
-                    (mousedown)="selectMention(option, $event)"
-                  >
-                    @if (option.userId; as userId) {
-                      <app-user-avatar [userId]="userId" [name]="option.label" />
-                    } @else {
-                      <span
-                        class="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
-                      >
-                        <ng-icon name="lucideUsers" class="size-3.5" />
-                      </span>
-                    }
-                    <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
-                    <span class="shrink-0 truncate text-xs text-muted-foreground">{{ option.detail }}</span>
-                  </button>
-                </li>
-              }
-            </ul>
-          }
-
           <textarea
-            #field
             z-textarea
-            rows="1"
-            placeholder="Escreva uma mensagem..."
-            aria-label="Mensagem"
-            class="max-h-32 min-h-11 w-full resize-none rounded-2xl py-2.5"
+            #field
+            class="w-full min-h-[48px] max-h-64 pr-12"
             [value]="value()"
             (input)="onInput($event)"
             (keydown)="onKeydown($event)"
-            (keyup.arrowleft)="onCaretMove($event)"
-            (keyup.arrowright)="onCaretMove($event)"
-            (keyup.home)="onCaretMove($event)"
-            (keyup.end)="onCaretMove($event)"
-            (click)="onCaretMove($event)"
-            (blur)="closeMentions()"
+            (keyup)="onCaretMove()"
+            (click)="onCaretMove()"
+            placeholder="Mensagem"
+            aria-label="Mensagem"
+            [disabled]="disabled()"
           ></textarea>
-        </div>
 
-        <button
-          z-button
-          zType="default"
-          zSize="icon-lg"
-          zShape="circle"
-          class="mb-0.5 shrink-0"
-          aria-label="Enviar"
-          [zDisabled]="!canSend()"
-          (click)="submit()"
-        >
-          <ng-icon name="lucideSend" />
-        </button>
+          <button
+            z-button
+            zType="ghost"
+            zSize="icon-sm"
+            class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            [disabled]="!canSend()"
+            (click)="submit()"
+            aria-label="Enviar"
+          >
+            <ng-icon name="lucideSend" class="size-5" />
+          </button>
+        </div>
       </div>
 
-      @if (value().length > 400) {
-        <p
-          class="mt-1.5 w-full text-right text-xs tabular-nums"
-          [class.text-destructive]="overLimit()"
-        >
-          {{ value().length }}/500
-        </p>
+      @if (overLimit()) {
+        <p class="text-xs text-destructive">A mensagem excede o limite de 500 caracteres.</p>
       }
     </div>
   `,
@@ -230,34 +211,29 @@ export class MessageInputComponent implements OnDestroy {
   private readonly injector = inject(Injector);
 
   readonly disabled = input(false);
-  /** A direct message has no audience for `@all`, so it is not offered there. */
   readonly isDm = input(false);
-
+  readonly replyTo = input<ReplyReference | null>(null);
   readonly send = output<OutgoingMessage>();
-  readonly typing = output<string>();
+  readonly typing = output<boolean>();
+  readonly cancelReply = output<void>();
 
   protected readonly value = signal('');
   protected readonly files = signal<StagedFile[]>([]);
   protected readonly dragging = signal(false);
-
-  /** The mention being typed at the caret, or null when none is open. */
   protected readonly mentionQuery = signal<MentionQuery | null>(null);
-  /** The highlighted row of the mention list. */
   protected readonly selectedIndex = signal(0);
-
-  private readonly picker = viewChild.required<ElementRef<HTMLInputElement>>('picker');
-  private readonly field = viewChild.required<ElementRef<HTMLTextAreaElement>>('field');
+  private readonly picker = viewChild<ElementRef<HTMLInputElement>>('picker');
+  private readonly field = viewChild<ElementRef<HTMLTextAreaElement>>('field');
   private nextFileId = 0;
-
-  protected readonly overLimit = () => this.value().length > 500;
-  protected readonly canSend = () =>
-    (this.value().trim().length > 0 || this.files().length > 0) && !this.overLimit() && !this.disabled();
+  protected readonly overLimit = computed(() => this.value().length > 500);
+  protected readonly canSend = computed(() => this.value().trim().length > 0 && !this.overLimit() && !this.disabled());
 
   /**
    * The rows offered for the current query. `@all` comes first and is a candidate
    * while the term is a prefix of it, so a bare `@` lists it alongside the
-   * people; everyone else is matched on username or display name. A direct
-   * message has no audience for `@all`, so it is left out there.
+   * people; a group is offered as `@group:<name>`; everyone else is matched on
+   * username or display name. A direct message has no audience for `@all`, so it
+   * is left out there.
    */
   protected readonly mentionOptions = computed<MentionOption[]>(() => {
     const query = this.mentionQuery();
@@ -271,6 +247,25 @@ export class MessageInputComponent implements OnDestroy {
 
     if (!this.isDm() && 'all'.includes(term)) {
       options.push({ token: 'all', label: 'Todos', detail: 'Mencionar todos', kind: 'all', userId: null });
+    }
+
+    for (const group of this.userService.groups()) {
+      // A mention token cannot carry whitespace, so a group name with a space is
+      // not offered: typing it would chip only the first word.
+      if (!/^[A-Za-z0-9._-]+$/.test(group.name)) {
+        continue;
+      }
+
+      const token = `group:${group.name}`;
+      if (token.toLowerCase().includes(term)) {
+        options.push({
+          token,
+          label: group.name,
+          detail: 'Mencionar grupo',
+          kind: 'group',
+          userId: null,
+        });
+      }
     }
 
     for (const user of this.userService.users()) {
@@ -297,65 +292,54 @@ export class MessageInputComponent implements OnDestroy {
     // The directory backs the autocomplete. The room view loads it too, and
     // `loadOnce` makes the second call a no-op once it has landed.
     this.userService.loadOnce().subscribe({ error: () => undefined });
+    this.userService.loadGroupsOnce().subscribe({ error: () => undefined });
   }
 
   ngOnDestroy(): void {
-    this.releasePreviews();
+    if (this.picker()) {
+      this.picker()!.nativeElement.remove();
+    }
   }
 
   protected onInput(event: Event): void {
     const textarea = event.target as HTMLTextAreaElement;
     this.value.set(textarea.value);
-    this.refreshMentionQuery(textarea);
-    this.typing.emit(textarea.value);
+    this.refreshMentionQuery();
   }
 
-  /** Re-reads the mention under the caret after the caret itself moved. */
-  protected onCaretMove(event: Event): void {
-    this.refreshMentionQuery(event.target as HTMLTextAreaElement);
+  protected onCaretMove(): void {
+    const textarea = this.field()?.nativeElement;
+    if (!textarea) {
+      return;
+    }
+    const caret = textarea.selectionStart;
+    this.mentionQuery.set(activeMentionQuery(this.value(), caret));
   }
 
   protected onKeydown(event: KeyboardEvent): void {
     const options = this.mentionOptions();
-    const open = this.mentionQuery() !== null && options.length > 0;
+    const open = options.length > 0 && this.mentionQuery() !== null;
 
-    if (open) {
-      switch (event.key) {
-        case 'ArrowDown':
-          event.preventDefault();
-          this.moveSelection(1);
-          return;
-        case 'ArrowUp':
-          event.preventDefault();
-          this.moveSelection(-1);
-          return;
-        case 'Enter':
-        case 'Tab':
-          event.preventDefault();
-          this.selectMention(options[this.selectedIndex()] ?? options[0]);
-          return;
-        case 'Escape':
-          event.preventDefault();
-          this.closeMentions();
-          return;
-      }
+    if (!open) {
+      return;
     }
 
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'ArrowDown') {
       event.preventDefault();
-      this.submit();
+      this.moveSelection(1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.moveSelection(-1);
+    } else if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault();
+      this.selectMention(options[this.selectedIndex()], event);
+    } else if (event.key === 'Escape') {
+      this.closeMentions();
     }
   }
 
-  /**
-   * Replaces the token under the caret with the chosen mention. The value is
-   * written to the field directly as well as to the signal, so the caret can be
-   * placed after the inserted token without waiting for the binding to land.
-   */
-  protected selectMention(option: MentionOption, event?: Event): void {
-    // Keeps focus in the field: a plain click would blur it and close the list
-    // before the selection is applied.
-    event?.preventDefault();
+  protected selectMention(option: MentionOption, event: MouseEvent | KeyboardEvent): void {
+    event.preventDefault();
 
     const query = this.mentionQuery();
     if (!query) {
@@ -366,18 +350,20 @@ export class MessageInputComponent implements OnDestroy {
     const before = value.slice(0, query.start);
     const after = value.slice(query.end);
     const inserted = `@${option.token} `;
-    const next = `${before}${inserted}${after}`;
+    const next = before + inserted + after;
+    const caret = query.start + inserted.length;
 
     this.value.set(next);
     this.closeMentions();
-    this.typing.emit(next);
 
-    const caret = before.length + inserted.length;
+    // Restore caret after the value update.
     afterNextRender(
       () => {
-        const textarea = this.field().nativeElement;
-        textarea.focus();
-        textarea.setSelectionRange(caret, caret);
+        const textarea = this.field()?.nativeElement;
+        if (textarea) {
+          textarea.setSelectionRange(caret, caret);
+          textarea.focus();
+        }
       },
       { injector: this.injector },
     );
@@ -385,88 +371,96 @@ export class MessageInputComponent implements OnDestroy {
 
   protected closeMentions(): void {
     this.mentionQuery.set(null);
+    this.selectedIndex.set(0);
+  }
+
+  protected quoteText(message: ReplyReference): string {
+    if (message.is_file) {
+      return 'Arquivo';
+    }
+    return message.content.slice(0, 60);
+  }
+
+  protected quoteAuthor(message: ReplyReference): string {
+    return message.author ? 'Outro' : 'Você';
   }
 
   protected submit(): void {
-    if (!this.canSend()) {
+    const content = this.value().trim();
+    if (!content || this.overLimit()) {
       return;
     }
 
-    this.send.emit({ content: this.value().trim(), files: this.files().map(item => item.file) });
+    this.send.emit({
+      content,
+      files: this.files().map(f => f.file),
+      replyToId: this.replyTo()?.id ?? null,
+    });
+
     this.value.set('');
-    this.closeMentions();
-    this.clearFiles();
+    this.files.set([]);
+    this.typing.emit(false);
   }
 
-  /** Ctrl+V: an image or file on the clipboard is staged instead of pasted as text. */
   protected onPaste(event: ClipboardEvent): void {
     const files = Array.from(event.clipboardData?.files ?? []);
-    if (files.length === 0) {
-      return;
-    }
-
-    event.preventDefault();
-    this.addFiles(files);
-  }
-
-  protected onDragOver(event: DragEvent): void {
-    // Only claim the drop when files are being dragged, so dragging selected
-    // text into the textarea still behaves normally.
-    if (!event.dataTransfer || !Array.from(event.dataTransfer.types).includes('Files')) {
-      return;
-    }
-
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-    this.dragging.set(true);
-  }
-
-  protected onDragLeave(event: DragEvent): void {
-    // dragleave also fires while moving between child elements; only clear the
-    // highlight once the pointer has actually left the composer.
-    const next = event.relatedTarget as Node | null;
-    if (next && (event.currentTarget as Node).contains(next)) {
-      return;
-    }
-
-    this.dragging.set(false);
-  }
-
-  protected onDrop(event: DragEvent): void {
-    event.preventDefault();
-    this.dragging.set(false);
-
-    const files = Array.from(event.dataTransfer?.files ?? []);
     if (files.length > 0) {
       this.addFiles(files);
     }
   }
 
+  protected onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    this.dragging.set(true);
+  }
+
+  protected onDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    if (
+      event.clientX < rect.left ||
+      event.clientX > rect.right ||
+      event.clientY < rect.top ||
+      event.clientY > rect.bottom
+    ) {
+      this.dragging.set(false);
+    }
+  }
+
+  protected onDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.dragging.set(false);
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    this.addFiles(files);
+  }
+
   protected openPicker(): void {
-    this.picker().nativeElement.click();
+    this.picker()?.nativeElement.click();
   }
 
   protected onFilesPicked(event: Event): void {
     const input = event.target as HTMLInputElement;
-    this.addFiles(Array.from(input.files ?? []));
-    // Reset so picking the same file again still fires a change event.
+    if (input.files && input.files.length > 0) {
+      this.addFiles(Array.from(input.files));
+    }
     input.value = '';
   }
 
   protected removeFile(id: number): void {
-    const removed = this.files().find(item => item.id === id);
+    const removed = this.files().find(f => f.id === id);
     if (removed?.previewUrl) {
       URL.revokeObjectURL(removed.previewUrl);
     }
-
-    this.files.update(current => current.filter(item => item.id !== id));
+    this.files.update(current => current.filter(f => f.id !== id));
   }
 
-  private refreshMentionQuery(textarea: HTMLTextAreaElement): void {
-    const caret = textarea.selectionStart ?? textarea.value.length;
-    this.mentionQuery.set(activeMentionQuery(textarea.value, caret));
-    // A new query means a new list, so the highlight starts at the top.
-    this.selectedIndex.set(0);
+  private refreshMentionQuery(): void {
+    const textarea = this.field()?.nativeElement;
+    if (!textarea) {
+      return;
+    }
+    const caret = textarea.selectionStart;
+    this.mentionQuery.set(activeMentionQuery(this.value(), caret));
   }
 
   private moveSelection(delta: number): void {
@@ -474,30 +468,35 @@ export class MessageInputComponent implements OnDestroy {
     if (count === 0) {
       return;
     }
-
-    this.selectedIndex.update(index => (index + delta + count) % count);
+    this.selectedIndex.update(current => (current + delta + count) % count);
   }
 
   private addFiles(files: File[]): void {
-    const staged = files.map(file => ({
-      id: this.nextFileId++,
-      file,
-      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
-      label: formatLabel(file),
-    }));
-
+    const staged = files.map(file => {
+      const id = this.nextFileId++;
+      let previewUrl: string | null = null;
+      if (file.type.startsWith('image/')) {
+        previewUrl = URL.createObjectURL(file);
+      }
+      const label = formatLabel(file);
+      return { id, file, previewUrl, label };
+    });
     this.files.update(current => [...current, ...staged]);
   }
 
   private clearFiles(): void {
-    this.releasePreviews();
+    for (const file of this.files()) {
+      if (file.previewUrl) {
+        URL.revokeObjectURL(file.previewUrl);
+      }
+    }
     this.files.set([]);
   }
 
   private releasePreviews(): void {
-    for (const item of this.files()) {
-      if (item.previewUrl) {
-        URL.revokeObjectURL(item.previewUrl);
+    for (const file of this.files()) {
+      if (file.previewUrl) {
+        URL.revokeObjectURL(file.previewUrl);
       }
     }
   }

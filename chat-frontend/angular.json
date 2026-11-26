@@ -6,7 +6,7 @@
     "analytics": false
   },
   "projects": {
-    "calling": {
+    "talk": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:component": {
@@ -64,10 +64,10 @@
           },
           "configurations": {
             "production": {
-              "buildTarget": "calling:build:production"
+              "buildTarget": "talk:build:production"
             },
             "development": {
-              "buildTarget": "calling:build:development"
+              "buildTarget": "talk:build:development"
             }
           },
           "defaultConfiguration": "development"

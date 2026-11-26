@@ -37,12 +37,20 @@ export class ApiService {
     });
   }
 
-  put<T>(endpoint: string, id: string, body: any, params?: any): Observable<T> {
-    return this.http.put<T>(`${this.config.apiUrl()}${endpoint}/${id}`, body, {
-      headers: this.authService.getAuthHeaders(),
-      params,
-    });
-  }
+  	put<T>(endpoint: string, id: string, body: any, params?: any): Observable<T> {
+  		return this.http.put<T>(`${this.config.apiUrl()}${endpoint}/${id}`, body, {
+  			headers: this.authService.getAuthHeaders(),
+  			params,
+  		});
+  	}
+
+  	/** PUT to a path that is already complete (no id to append). */
+  	putBody<T>(endpoint: string, body: any, params?: any): Observable<T> {
+  		return this.http.put<T>(`${this.config.apiUrl()}${endpoint}`, body, {
+  			headers: this.authService.getAuthHeaders(),
+  			params,
+  		});
+  	}
 
   delete<T>(endpoint: string, id?: string, params?: any): Observable<T> {
     const url = id ? `${this.config.apiUrl()}${endpoint}/${id}` : `${this.config.apiUrl()}${endpoint}`;

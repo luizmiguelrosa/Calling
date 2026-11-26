@@ -105,11 +105,11 @@ export class StartupService {
 
   private modeKey(): string | null {
     const userId = this.auth.getUserId();
-    return userId ? `calling_startup_mode_${userId}` : null;
+    return userId ? `talk_startup_mode_${userId}` : null;
   }
 
   private lastRouteKey(): string | null {
     const userId = this.auth.getUserId();
-    return userId ? `calling_last_route_${userId}` : null;
+    return userId ? `talk_last_route_${userId}` : null;
   }
 }

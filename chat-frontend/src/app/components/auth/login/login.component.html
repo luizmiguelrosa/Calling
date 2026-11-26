@@ -16,7 +16,7 @@
 
         <z-card>
             <div z-card-header class="flex justify-center">
-                <z-card-title zTitle="Entrar no Calling"/>
+                <z-card-title zTitle="Entrar no Talk"/>
             </div>
             <div z-card-content>
                 <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
@@ -68,8 +68,6 @@
                     </div>
                 </form>
                 <div class="mt-4 flex items-center justify-center gap-3 text-sm">
-                    <a routerLink="/register" class="text-blue-600 hover:underline">Ainda não tem uma conta? Registrar</a>
-                    <span class="text-muted-foreground">·</span>
                     <a routerLink="/settings/server" class="flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline">
                         <ng-icon name="lucideServer" class="size-3.5" />
                         Servidor

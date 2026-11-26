@@ -8,6 +8,7 @@ import { StartupLoadingComponent } from './components/layout/startup-loading/sta
 import { TitleBarComponent } from './components/layout/titlebar/titlebar.component';
 import { AuthService } from './services/auth.service';
 import { StartupService } from './services/startup.service';
+import { StatusService } from './services/status.service';
 import { UserService } from './services/user.service';
 import { WebSocketService } from './services/websocket.service';
 import { WindowService } from './services/window.service';
@@ -42,6 +43,7 @@ export class AppComponent {
   private readonly socket = inject(WebSocketService);
   private readonly userService = inject(UserService);
   private readonly startup = inject(StartupService);
+  private readonly status = inject(StatusService);
 
   /**
    * The native title bar is disabled in `tauri.conf.json`, so the custom one is
@@ -58,6 +60,10 @@ export class AppComponent {
   protected readonly booting = signal(true);
 
   constructor() {
+    // The away detector is app-wide: losing the window or sitting idle must
+    // change presence whether or not a conversation is on screen.
+    this.status.startIdleDetection();
+
     // Center before the first navigation settles. The auth route would center
     // anyway, but a session restored straight into the chat maximizes, and the
     // window should not sit wherever the OS placed it during that handoff.

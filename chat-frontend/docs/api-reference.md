@@ -1,6 +1,6 @@
 # Chat API Reference
 
-Quick reference for the Calling chat backend API.
+Quick reference for the Talk chat backend API.
 
 ## Base URL
 ```
@@ -49,7 +49,7 @@ Authorization: Bearer <jwt_token>
   "id": "string",
   "username": "string",
   "name": "string",
-  "role": "Developer|Admin"
+  "roles": [{ "id": "string", "name": "string", "color": "#RRGGBB" }]
 }
 ```
 
@@ -59,7 +59,8 @@ Authorization: Bearer <jwt_token>
   "username": "string (3-32 chars)",
   "password": "string (8-72 chars)",
   "name": "string (2-64 chars)",
-  "role": "Developer|Admin"
+  "email": "string",
+  "role_ids": ["string"]
 }
 ```
 

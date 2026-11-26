@@ -8,7 +8,7 @@ version: "1.0.2"
 
 ## Description
 
-This skill helps update the release version across all relevant files in the Calling project when a new version is requested.
+This skill helps update the release version across all relevant files in the Talk project when a new version is requested.
 
 ## Scope
 

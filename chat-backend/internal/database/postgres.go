@@ -14,7 +14,7 @@ import (
 func NewPool(ctx context.Context) (*pgxpool.Pool, error) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/calling_chat?sslmode=disable"
+		dsn = "postgres://postgres:postgres@localhost:5432/talk_chat?sslmode=disable"
 	}
 
 	cfg, err := pgxpool.ParseConfig(dsn)

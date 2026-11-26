@@ -4,6 +4,7 @@ import (
 	"chat-backend/internal/auth"
 	"chat-backend/internal/httputil"
 	"chat-backend/internal/models"
+	"chat-backend/internal/permissions"
 	"chat-backend/internal/user"
 	"context"
 	"encoding/json"
@@ -11,10 +12,12 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 	"github.com/gorilla/websocket"
 )
@@ -38,19 +41,28 @@ type Manager struct {
 	statuses    map[string]string
 	service     Service
 	userService user.Service
+	permissions permissions.Service
 	mu          sync.RWMutex
 }
 
-func NewManager(service Service, userService user.Service) *Manager {
+func NewManager(service Service, userService user.Service, permissionService permissions.Service) *Manager {
 	return &Manager{
 		clients:     make(map[string]map[*websocket.Conn]struct{}),
 		statuses:    make(map[string]string),
 		service:     service,
 		userService: userService,
+		permissions: permissionService,
 	}
 }
 
 func (m *Manager) GetHistory(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"message": "unauthorized: missing user identity"})
+		return
+	}
+
 	roomID := r.URL.Query().Get("room_id")
 	if roomID == "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -58,9 +70,9 @@ func (m *Manager) GetHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	history, err := m.service.GetRoomHistory(r.Context(), roomID)
+	history, err := m.service.GetRoomHistory(r.Context(), userID, roomID)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(statusForError(err))
 		json.NewEncoder(w).Encode(map[string]string{"message": err.Error()})
 		return
 	}
@@ -79,6 +91,25 @@ func (m *Manager) GetOnlineUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) CreateRoom(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"message": "unauthorized: missing user identity"})
+		return
+	}
+
+	allowed, err := m.permissions.Can(r.Context(), userID, permissions.RoomsCreate)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"message": err.Error()})
+		return
+	}
+	if !allowed {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"message": "forbidden: missing permission " + permissions.RoomsCreate})
+		return
+	}
+
 	input, valid := httputil.ReadAndValidate[models.CreateRoomInput](w, r)
 	if !valid {
 		return
@@ -99,8 +130,43 @@ func (m *Manager) CreateRoom(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(roomData)
 }
 
+// GetMessage serves GET /messages/{id}. A reply composed in another room carries
+// only the parent's id, so the client resolves the quote through this endpoint.
+func (m *Manager) GetMessage(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"message": "unauthorized: missing user identity"})
+		return
+	}
+
+	messageID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"message": "invalid: message id"})
+		return
+	}
+
+	message, err := m.service.GetMessage(r.Context(), userID, messageID)
+	if err != nil {
+		w.WriteHeader(statusForError(err))
+		json.NewEncoder(w).Encode(map[string]string{"message": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(message)
+}
+
 func (m *Manager) ListRooms(w http.ResponseWriter, r *http.Request) {
-	channels, err := m.service.GetAvailableChannels(r.Context())
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"message": "unauthorized: missing user identity"})
+		return
+	}
+
+	channels, err := m.service.GetAvailableChannels(r.Context(), userID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"message": err.Error()})
@@ -243,7 +309,7 @@ func (m *Manager) ManageConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	m.clients[userID][conn] = struct{}{}
 	m.mu.Unlock()
-	log.Printf("-> User [%s] joined the chat via WebSocket!", userID)
+	log.Printf("user %q connected; a new WebSocket is open.", userID)
 
 	// Tell the newcomer who is already here and how they are set, so presence is
 	// populated immediately rather than only after the next change.
@@ -270,7 +336,7 @@ func (m *Manager) ManageConnection(w http.ResponseWriter, r *http.Request) {
 		if last {
 			m.broadcastStatus(userID, "offline")
 		}
-		log.Printf("<- User [%s] left the chat.", userID)
+		log.Printf("user %q disconnected; a WebSocket closed.", userID)
 	}()
 
 	for {

@@ -1,13 +1,16 @@
 package container
 
 import (
+	"chat-backend/internal/admin"
 	"chat-backend/internal/auth"
 	"chat-backend/internal/chat"
 	"chat-backend/internal/database"
 	"chat-backend/internal/files"
+	"chat-backend/internal/permissions"
 	"chat-backend/internal/storage"
 	"chat-backend/internal/user"
 	"context"
+	"log"
 	"net/http"
 	"os"
 
@@ -33,6 +36,16 @@ func BuildContainer(ctx context.Context) *dig.Container {
 			return nil, err
 		}
 
+		// A fresh database has no account and no way to create one, because the
+		// public registration endpoint is gone. The bootstrap account is created
+		// only while every user row is absent or soft-deleted.
+		if created, username, err := user.EnsureSystemUser(ctx, pool); err != nil {
+			pool.Close()
+			return nil, err
+		} else if created {
+			log.Printf("Bootstrap system user %q is ready to create accounts.", username)
+		}
+
 		return pool, nil
 	})
 
@@ -55,6 +68,15 @@ func BuildContainer(ctx context.Context) *dig.Container {
 	c.Provide(func() (*storage.Storage, error) {
 		return storage.New(os.Getenv("FILES_DIR"))
 	})
+
+	// Permissions module
+	c.Provide(permissions.NewRepository)
+	c.Provide(permissions.NewService)
+
+	// Admin module (users, roles, rooms, room permissions)
+	c.Provide(admin.NewRepository)
+	c.Provide(admin.NewService)
+	c.Provide(admin.NewHandler)
 
 	// User module
 	c.Provide(user.NewRepository)

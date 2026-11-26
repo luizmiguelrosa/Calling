@@ -7,7 +7,7 @@ import { environment } from '../../environments/environment';
 /** Where the active address came from, so the UI can explain it. */
 export type ApiUrlSource = 'environment' | 'client' | 'default';
 
-const STORAGE_KEY = 'calling_api_url';
+const STORAGE_KEY = 'talk_api_url';
 
 /**
  * Resolves the backend address once, at startup, and every service reads it from

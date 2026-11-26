@@ -11,7 +11,7 @@ import { Injectable, signal } from '@angular/core';
  */
 @Injectable({ providedIn: 'root' })
 export class RoomNavigationService {
-  private static readonly STORAGE_KEY = 'calling_last_room';
+  private static readonly STORAGE_KEY = 'talk_last_room';
 
   private readonly lastRoom = signal<string | null>(
     localStorage.getItem(RoomNavigationService.STORAGE_KEY),

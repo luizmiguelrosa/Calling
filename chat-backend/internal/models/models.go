@@ -15,22 +15,42 @@ const (
 // the Content is not free text but a JSON FileAttachment, so the client knows to
 // render the file rather than the string.
 type MessageBroadcast struct {
-	RoomID  string    `json:"room_id"`
-	Author  string    `json:"author"`
-	Content string    `json:"content"`
-	IsFile  bool      `json:"is_file"`
-	SentAt  time.Time `json:"sentAt"`
+	RoomID  string `json:"room_id"`
+	Author  string `json:"author"`
+	Content string `json:"content"`
+	IsFile  bool   `json:"is_file"`
+	// ID is the stored row. The client needs it to scroll to a message and to
+	// reference it as the parent of a reply.
+	ID int64 `json:"id"`
+	// ReplyTo is the quoted message when this one is a reply. It is a snapshot,
+	// resolved at delivery time, so a client that has not loaded the parent can
+	// still render the quote.
+	ReplyTo *ReplyReference `json:"reply_to,omitempty"`
+	SentAt  time.Time       `json:"sentAt"`
+}
+
+// ReplyReference is the quoted message a reply carries: enough to render the
+// preview, and the room id needed to navigate back to the original.
+type ReplyReference struct {
+	ID      int64  `json:"id"`
+	RoomID  string `json:"room_id"`
+	Author  string `json:"author"`
+	Content string `json:"content"`
+	IsFile  bool   `json:"is_file"`
 }
 
 // StoredMessage is a message row as it lives in the database. Content is the raw
 // column value, which is JSON for a file message; the service turns it into the
 // client-facing shape.
 type StoredMessage struct {
-	RoomID  string
-	Author  string
-	Content string
-	IsFile  bool
-	SentAt  time.Time
+	ID        int64
+	RoomID    string
+	Author    string
+	Content   string
+	IsFile    bool
+	ReplyToID *int64
+	ReplyTo   *ReplyReference
+	SentAt    time.Time
 }
 
 // FileContent is the JSON stored in messages.content when a message carries a
@@ -68,18 +88,20 @@ type FileResponse struct {
 // file already uploaded through the room's file endpoint, so it carries a
 // file_id and may omit the caption.
 type IncomingMessage struct {
-	RoomID  string `json:"room_id" validate:"required,min=3"`
-	Content string `json:"content" validate:"required_without=IsFile,max=500"`
-	IsFile  bool   `json:"is_file"`
-	FileID  string `json:"file_id" validate:"required_if=IsFile true"`
+	RoomID    string `json:"room_id" validate:"required,min=3"`
+	Content   string `json:"content" validate:"required_without=IsFile,max=500"`
+	IsFile    bool   `json:"is_file"`
+	FileID    string `json:"file_id" validate:"required_if=IsFile true"`
+	ReplyToID *int64 `json:"reply_to_id"`
 }
 
 // BatchMessageInput is one message of a batch send. A file message references a
 // file already uploaded through the room's file endpoint.
 type BatchMessageInput struct {
-	Content string `json:"content" validate:"required_without=IsFile,max=500"`
-	IsFile  bool   `json:"is_file"`
-	FileID  string `json:"file_id" validate:"required_if=IsFile true"`
+	Content   string `json:"content" validate:"required_without=IsFile,max=500"`
+	IsFile    bool   `json:"is_file"`
+	FileID    string `json:"file_id" validate:"required_if=IsFile true"`
+	ReplyToID *int64 `json:"reply_to_id"`
 }
 
 // BatchSendInput is the body of POST /messages/batch: several messages for one

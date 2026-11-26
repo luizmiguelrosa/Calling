@@ -20,7 +20,10 @@ export class UserService {
    * pushed whenever a peer changes status or disconnects.
    */
   readonly statuses = signal<Record<string, PresenceStatus>>({});
+  /** Live groups, used to resolve `@group:<name>` mentions and their colours. */
+  readonly groups = signal<AdminGroupRef[]>([]);
   private loaded = false;
+  private groupsLoaded = false;
 
   getUsers(): Observable<UserResponse[]> {
     return this.api.get<UserResponse[]>('/users').pipe(
@@ -36,9 +39,40 @@ export class UserService {
     return this.loaded ? of(this.users()) : this.getUsers();
   }
 
+  /** The group roster, fetched once for mention resolution and autocomplete. */
+  loadGroupsOnce(): Observable<AdminGroupRef[]> {
+    if (this.groupsLoaded) {
+      return of(this.groups());
+    }
+
+    return this.api.get<AdminGroupRef[]>('/groups').pipe(
+      tap(groups => {
+        this.groups.set(groups);
+        this.groupsLoaded = true;
+      }),
+    );
+  }
+
+  /** Resolves an `@group:<name>` token case-insensitively. */
+  findGroup(name: string): AdminGroupRef | undefined {
+    const target = name.toLowerCase();
+    return this.groups().find(group => group.name.toLowerCase() === target);
+  }
+
+  /**
+   * The directory users who belong to the named group. A user may hold several groups,
+   * so this checks the whole set rather than a single label.
+   */
+  groupMembers(name: string): UserResponse[] {
+    const target = name.toLowerCase();
+    return this.users().filter(user =>
+      user.groups.some(group => group.name.toLowerCase() === target),
+    );
+  }
+
   displayName(userId: string): string {
     const user = this.users().find(u => u.id === userId);
-    return user?.name || user?.username || userId;
+    return user?.name || user?.username || 'Usuário desconhecido';
   }
 
   getUserById(userId: string): UserResponse | undefined {

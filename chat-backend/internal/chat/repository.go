@@ -7,11 +7,13 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Repository interface {
-	SaveMessage(ctx context.Context, msg *models.StoredMessage) error
+	SaveMessage(ctx context.Context, msg *models.StoredMessage) (int64, error)
+	GetMessageByID(ctx context.Context, id int64) (*models.StoredMessage, error)
 	GetHistory(ctx context.Context, roomID string) ([]*models.StoredMessage, error)
 	GetRoomMetadata(ctx context.Context, roomID string) (roomName string, isDM bool, exists bool, err error)
 	RoomExistsByName(ctx context.Context, roomName string) (bool, error)
@@ -32,14 +34,37 @@ func NewRepository(pool *pgxpool.Pool) Repository {
 	}
 }
 
-func (r *postgresRepository) SaveMessage(ctx context.Context, msg *models.StoredMessage) error {
+func (r *postgresRepository) SaveMessage(ctx context.Context, msg *models.StoredMessage) (int64, error) {
+	var replyToID pgtype.Int8
+	if msg.ReplyToID != nil {
+		replyToID = pgtype.Int8{Int64: *msg.ReplyToID, Valid: true}
+	}
+
 	return r.q.SaveMessage(ctx, sqlc.SaveMessageParams{
-		RoomID:   msg.RoomID,
-		Author:   msg.Author,
-		Content:  msg.Content,
-		IsFile:   msg.IsFile,
-		SendedAt: msg.SentAt,
+		RoomID:    msg.RoomID,
+		Author:    msg.Author,
+		Content:   msg.Content,
+		IsFile:    msg.IsFile,
+		ReplyToID: replyToID,
+		SendedAt:  msg.SentAt,
 	})
+}
+
+func (r *postgresRepository) GetMessageByID(ctx context.Context, id int64) (*models.StoredMessage, error) {
+	row, err := r.q.GetMessageByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.StoredMessage{
+		ID:        row.ID,
+		RoomID:    row.RoomID,
+		Author:    row.Author,
+		Content:   row.Content,
+		IsFile:    row.IsFile,
+		ReplyToID: int64Ptr(row.ReplyToID),
+		SentAt:    row.SendedAt,
+	}, nil
 }
 
 func (r *postgresRepository) GetHistory(ctx context.Context, roomID string) ([]*models.StoredMessage, error) {
@@ -50,15 +75,39 @@ func (r *postgresRepository) GetHistory(ctx context.Context, roomID string) ([]*
 
 	messages := make([]*models.StoredMessage, 0, len(rows))
 	for _, row := range rows {
-		messages = append(messages, &models.StoredMessage{
-			RoomID:  row.RoomID,
-			Author:  row.Author,
-			Content: row.Content,
-			IsFile:  row.IsFile,
-			SentAt:  row.SendedAt,
-		})
+		message := &models.StoredMessage{
+			ID:        row.ID,
+			RoomID:    row.RoomID,
+			Author:    row.Author,
+			Content:   row.Content,
+			IsFile:    row.IsFile,
+			ReplyToID: int64Ptr(row.ReplyToID),
+			SentAt:    row.SendedAt,
+		}
+
+		// The parent row is joined in, so a reply renders its quote without a
+		// second query per message.
+		if row.ReplyRoomID.Valid && row.ReplyAuthor.Valid && row.ReplyContent.Valid {
+			message.ReplyTo = &models.ReplyReference{
+				ID:      row.ReplyToID.Int64,
+				RoomID:  row.ReplyRoomID.String,
+				Author:  row.ReplyAuthor.String,
+				Content: row.ReplyContent.String,
+				IsFile:  row.ReplyIsFile.Bool,
+			}
+		}
+
+		messages = append(messages, message)
 	}
 	return messages, nil
+}
+
+func int64Ptr(value pgtype.Int8) *int64 {
+	if !value.Valid {
+		return nil
+	}
+	id := value.Int64
+	return &id
 }
 
 func (r *postgresRepository) GetRoomMetadata(ctx context.Context, roomID string) (string, bool, bool, error) {

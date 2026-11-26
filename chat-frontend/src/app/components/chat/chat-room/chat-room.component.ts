@@ -13,7 +13,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { DatePipe } from '@angular/common';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { filter, finalize, forkJoin, map, switchMap, tap } from 'rxjs';
 
 import { isTauri } from '@tauri-apps/api/core';
@@ -21,7 +21,7 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
 
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideBell, lucideBellOff, lucideDownload, lucideFile, lucideHash, lucideLoaderCircle } from '@ng-icons/lucide';
+import { lucideBell, lucideBellOff, lucideDownload, lucideFile, lucideHash, lucideLoaderCircle, lucideReply } from '@ng-icons/lucide';
 
 import { ZardButtonComponent } from '@/shared/components/button';
 import { ZardDialogService } from '@/shared/components/dialog/dialog.service';
@@ -32,6 +32,7 @@ import { segmentMessage } from '@/shared/utils/mentions';
 import { UserAvatarComponent } from '@/components/shared/user-avatar/user-avatar.component';
 
 import type { MentionDialogData } from '@/components/dialog/mention/mention-dialog.component';
+import type { UserInfoDialogData } from '@/components/dialog/user-info/user-info-dialog.component';
 
 import { AuthService } from '@/services/auth.service';
 import { ConversationService } from '@/services/conversation.service';
@@ -44,7 +45,9 @@ import { RoomService } from '@/services/room.service';
 import { UserService } from '@/services/user.service';
 import { WebSocketService } from '@/services/websocket.service';
 import { MessageInputComponent, OutgoingMessage } from '../message-input/message-input.component';
+import type { MessageBroadcast, FileAttachment, ReplyReference, BatchMessageInput } from '@/types/message.type';
 import { ImagePreviewComponent } from '../image-preview/image-preview.component';
+import { MessageContextMenuComponent } from '../message-context-menu/message-context-menu.component';
 
 /** Messages closer together than this are treated as one burst. */
 const GROUP_GAP_MS = 5 * 60 * 1000;
@@ -121,7 +124,7 @@ function isImageAttachment(attachment: FileAttachment): boolean {
 @Component({
   selector: 'chat-room',
   standalone: true,
-  imports: [DatePipe, NgIcon, ScrollingModule, ZardButtonComponent, ZardEmptyComponent, ZardSkeletonComponent, UserAvatarComponent, MessageInputComponent, ImagePreviewComponent],
+  imports: [DatePipe, NgIcon, ScrollingModule, ZardButtonComponent, ZardEmptyComponent, ZardSkeletonComponent, UserAvatarComponent, MessageInputComponent, ImagePreviewComponent, MessageContextMenuComponent],
   host: {
     class: 'flex min-h-0 flex-1 flex-col',
   },
@@ -144,7 +147,12 @@ function isImageAttachment(attachment: FileAttachment): boolean {
           }
         </span>
         <h1 class="truncate text-base font-medium">
-          {{ conversation.other_name || conversation.other_username }}
+          <button
+            type="button"
+            class="cursor-pointer truncate hover:underline"
+            [attr.title]="'Ver perfil de ' + (conversation.other_name || conversation.other_username)"
+            (click)="openUserInfo(conversation.other_user_id)"
+          >{{ conversation.other_name || conversation.other_username }}</button>
         </h1>
       } @else {
         <ng-icon name="lucideHash" class="size-4 shrink-0 text-muted-foreground" />
@@ -208,6 +216,8 @@ function isImageAttachment(attachment: FileAttachment): boolean {
           *cdkVirtualFor="let row of messageRows(); trackBy: trackRow"
           class="flex w-full px-4 py-1"
           [class.justify-end]="isOwn(row.message)"
+          [class.bg-accent/40]="highlightId() === row.message.id"
+          (contextmenu)="openContextMenu($event, row.message)"
         >
           <div class="max-w-[75%]">
             <div
@@ -218,8 +228,27 @@ function isImageAttachment(attachment: FileAttachment): boolean {
               [class.border]="!isOwn(row.message)"
               [class.border-border]="!isOwn(row.message)"
             >
+              @if (row.message.reply_to; as quoted) {
+                <!-- The quoted message sits above the reply, WhatsApp-style. Clicking
+                     it returns to the original, including across rooms. -->
+                <button
+                  type="button"
+                  class="mb-1.5 block w-full max-w-full cursor-pointer rounded border-l-2 border-current/40 bg-black/10 px-2 py-1 text-left text-xs opacity-90 transition-opacity hover:opacity-100"
+                  [attr.title]="'Ir para a mensagem de ' + authorName(quoted.author)"
+                  (click)="openReplyReference(quoted)"
+                >
+                  <span class="block truncate font-medium">{{ authorName(quoted.author) }}</span>
+                  <span class="block truncate opacity-80">{{ replyPreviewText(quoted) }}</span>
+                </button>
+              }
+
               @if (!isOwn(row.message)) {
-                <p class="mb-0.5 text-xs text-muted-foreground">{{ authorName(row.message.author) }}</p>
+                <button
+                  type="button"
+                  class="mb-0.5 block cursor-pointer text-xs text-muted-foreground hover:underline"
+                  [attr.title]="'Ver perfil de ' + authorName(row.message.author)"
+                  (click)="openUserInfo(row.message.author)"
+                >{{ authorName(row.message.author) }}</button>
               }
 
               @if (row.attachment; as attachment) {
@@ -283,7 +312,7 @@ function isImageAttachment(attachment: FileAttachment): boolean {
                         class="cursor-pointer rounded bg-mention px-1 font-medium text-mention-foreground transition-opacity hover:opacity-90"
                         [attr.title]="mentionTitle(segment.mention)"
                         (click)="openMention(segment.mention, $event)"
-                      >{{ segment.value }}</button>
+                      >{{ mentionLabel(segment) }}</button>
                     } @else if (segment.type === 'link') {
                       <a
                         [href]="segment.href"
@@ -325,14 +354,31 @@ function isImageAttachment(attachment: FileAttachment): boolean {
       <p class="px-4 pt-2 text-xs text-muted-foreground">{{ label }}</p>
     }
 
-    <chat-message-input [isDm]="!!dm()" (send)="send($event)" (typing)="onTyping($event)" />
+    <chat-message-input
+      [isDm]="!!dm()"
+      [replyTo]="replyTarget()"
+      (send)="send($event)"
+      (typing)="onTyping($event)"
+      (cancelReply)="clearReply()"
+    />
+
+    @if (contextMenu(); as menu) {
+      <chat-message-context-menu
+        [x]="menu.x"
+        [y]="menu.y"
+        [canReplyPrivate]="menu.canReplyPrivate"
+        (reply)="startReply(menu.message)"
+        (replyPrivate)="replyInPrivate(menu.message)"
+        (dismiss)="closeContextMenu()"
+      />
+    }
 
     @if (previewImage(); as preview) {
       <chat-image-preview [url]="preview.url" [alt]="preview.name" (close)="closePreview()" />
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  viewProviders: [provideIcons({ lucideHash, lucideBell, lucideBellOff, lucideFile, lucideDownload, lucideLoaderCircle })],
+  viewProviders: [provideIcons({ lucideHash, lucideBell, lucideBellOff, lucideFile, lucideDownload, lucideLoaderCircle, lucideReply })],
 })
 export class ChatRoomComponent {
   private readonly injector = inject(Injector);
@@ -345,6 +391,7 @@ export class ChatRoomComponent {
   protected readonly ITEM_SIZE_ESTIMATE = 56;
 
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly roomService = inject(RoomService);
   private readonly userService = inject(UserService);
   private readonly conversations = inject(ConversationService);
@@ -392,6 +439,24 @@ export class ChatRoomComponent {
 
   /** The image open in the full-screen preview, if any. */
   protected readonly previewImage = signal<{ url: string; name: string } | null>(null);
+
+  /** The message the composer is quoting, if the user chose Reply. */
+  protected readonly replyTarget = signal<ReplyReference | null>(null);
+
+  /** The open right-click menu, anchored at the pointer. */
+  protected readonly contextMenu = signal<{
+    x: number;
+    y: number;
+    message: MessageBroadcast;
+    canReplyPrivate: boolean;
+  } | null>(null);
+
+  /** The message briefly highlighted after a quote scrolls to it. */
+  protected readonly highlightId = signal<number | null>(null);
+  private highlightTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** A message to scroll to once history has loaded (a cross-room quote). */
+  private readonly pendingScrollId = signal<number | null>(null);
 
   private typingRoomId: string | null = null;
   private typingSentAt = 0;
@@ -473,9 +538,15 @@ export class ChatRoomComponent {
   });
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.stopTyping());
+    this.destroyRef.onDestroy(() => {
+      this.stopTyping();
+      if (this.highlightTimer !== null) {
+        clearTimeout(this.highlightTimer);
+      }
+    });
 
     this.scrollWhenReady();
+    this.scrollToPendingMessage();
 
     // A file message carries a path, not the bytes. Each image is resolved
     // through the local cache once, and the template renders it when the object
@@ -529,6 +600,7 @@ export class ChatRoomComponent {
         map(params => params.get('id')),
         filter((id): id is string => !!id),
         tap(() => this.stopTyping()),
+        tap(() => this.applyNavigationParams()),
         // The router reuses this component across room navigations, so the public
         // room list fetched at construction can predate a room created since.
         // Refetch it on every room change so a newly created room resolves its
@@ -541,6 +613,8 @@ export class ChatRoomComponent {
           // The pending payload belongs to the room it failed in; retrying it
           // from another room would send it to the wrong conversation.
           this.pendingSend.set(null);
+          this.replyTarget.set(null);
+          this.contextMenu.set(null);
           this.loading.set(true);
 
           return this.roomService.getRoomHistory(roomId).pipe(finalize(() => this.loading.set(false)));
@@ -639,6 +713,8 @@ export class ChatRoomComponent {
 
     // History carries author IDs; the directory turns them into names.
     this.userService.loadOnce().subscribe({ error: () => undefined });
+    // The role roster titles `@role:` chips and backs the mention dialog.
+    this.userService.loadGroupsOnce().subscribe({ error: () => undefined });
   }
 
   /**
@@ -660,6 +736,213 @@ export class ChatRoomComponent {
 
   protected isOwn(message: MessageBroadcast): boolean {
     return message.author === this.currentUserId;
+  }
+
+  /** Opens the message's right-click menu at the pointer. */
+  protected openContextMenu(event: MouseEvent, message: MessageBroadcast): void {
+    event.preventDefault();
+
+    // "Reply in private" is a public-room action: a DM is already private, and
+    // replying to your own message would just open the conversation you are in.
+    const canReplyPrivate =
+      !this.dm() && message.author !== this.currentUserId && !!this.userService.getUserById(message.author);
+
+    this.contextMenu.set({
+      x: Math.min(event.clientX, window.innerWidth - 224),
+      y: Math.min(event.clientY, window.innerHeight - 128),
+      message,
+      canReplyPrivate,
+    });
+  }
+
+  protected closeContextMenu(): void {
+    this.contextMenu.set(null);
+  }
+
+  /** Quotes a message in the current room; the composer renders the preview. */
+  protected startReply(message: MessageBroadcast): void {
+    this.replyTarget.set({
+      id: message.id,
+      room_id: message.room_id,
+      author: message.author,
+      content: message.content,
+      is_file: message.is_file,
+    });
+    this.closeContextMenu();
+  }
+
+  protected clearReply(): void {
+    this.replyTarget.set(null);
+  }
+
+  /**
+   * Opens (or creates) the DM with the author and carries the quoted message
+   * into it. The DM resolves the quote from its id, so the reference survives a
+   * reload instead of existing only in navigation state.
+   */
+  protected replyInPrivate(message: MessageBroadcast): void {
+    this.closeContextMenu();
+
+    const author = this.userService.getUserById(message.author);
+    if (!author) {
+      return;
+    }
+
+    this.conversations.openDirectMessage(author).subscribe({
+      next: room => {
+        void this.router.navigate(['/chat/room', room.id], {
+          queryParams: { replyTo: message.id },
+        });
+      },
+      error: () => undefined,
+    });
+  }
+
+  /**
+   * Jumps to the message a reply quotes. A quote that points at another room
+   * navigates there first and passes the id, so the target view scrolls once its
+   * history has loaded.
+   */
+  protected openReplyReference(reference: ReplyReference): void {
+    if (reference.room_id === this.roomId()) {
+      this.scrollToMessage(reference.id);
+      return;
+    }
+
+    const isPublic = this.rooms().some(room => room.id === reference.room_id);
+    void this.router.navigate(isPublic ? ['/chat/rooms', reference.room_id] : ['/chat/room', reference.room_id], {
+      queryParams: { message: reference.id },
+    });
+  }
+
+  /** The quote's preview text: the caption, or the file name for an attachment. */
+  protected replyPreviewText(reference: ReplyReference): string {
+    if (!reference.is_file) {
+      return reference.content;
+    }
+
+    try {
+      const attachment = JSON.parse(reference.content) as FileAttachment;
+      return attachment.message || attachment.file_name || 'Arquivo';
+    } catch {
+      return 'Arquivo';
+    }
+  }
+
+  /**
+   * Applies the query parameters a cross-room action carries: `message` asks
+   * the view to scroll to a message once history lands, `replyTo` asks it to
+   * quote a message from another room in this composer.
+   */
+  private applyNavigationParams(): void {
+    const params = this.route.snapshot.queryParamMap;
+
+    // A request from the previous room must not leak into this one.
+    this.pendingScrollId.set(null);
+
+    const scrollTo = Number(params.get('message'));
+    if (Number.isInteger(scrollTo) && scrollTo > 0) {
+      this.pendingScrollId.set(scrollTo);
+    }
+
+    const replyTo = Number(params.get('replyTo'));
+    if (Number.isInteger(replyTo) && replyTo > 0) {
+      this.loadReplyTarget(replyTo);
+    }
+  }
+
+  /** Resolves a quoted message that belongs to another room. */
+  private loadReplyTarget(messageId: number): void {
+    if (this.replyTarget()?.id === messageId) {
+      return;
+    }
+
+    this.roomService.getMessage(messageId).subscribe({
+      next: message => {
+        this.replyTarget.set({
+          id: message.id,
+          room_id: message.room_id,
+          author: message.author,
+          content: message.content,
+          is_file: message.is_file,
+        });
+
+        // The reference is now in the composer; a reload does not need the
+        // parameter again, and leaving it would re-apply after a cancel.
+        void this.router.navigate([], {
+          relativeTo: this.route,
+          queryParams: { replyTo: null },
+          queryParamsHandling: 'merge',
+          replaceUrl: true,
+        });
+      },
+      error: () => undefined,
+    });
+  }
+
+  /** Moves the viewport to a message already in history and flashes it. */
+  private scrollToMessage(messageId: number): void {
+    const index = this.messages().findIndex(message => message.id === messageId);
+    if (index < 0) {
+      // Not loaded (a history that arrives later, or a cross-room jump).
+      this.pendingScrollId.set(messageId);
+      return;
+    }
+
+    const viewport = this.viewport();
+    if (!viewport) {
+      this.pendingScrollId.set(messageId);
+      return;
+    }
+
+    viewport.checkViewportSize();
+    viewport.scrollToIndex(index, 'auto');
+    this.flashHighlight(messageId);
+  }
+
+  /** Scrolls to a requested message once both the viewport and history exist. */
+  private scrollToPendingMessage(): void {
+    effect(() => {
+      const messageId = this.pendingScrollId();
+      const viewport = this.viewport();
+      const count = this.messageRows().length;
+
+      if (messageId === null || !viewport || count === 0) {
+        return;
+      }
+
+      const index = this.messages().findIndex(message => message.id === messageId);
+      if (index < 0) {
+        return;
+      }
+
+      this.pendingScrollId.set(null);
+
+      // The scroller has to measure itself before the jump, exactly like the
+      // bottom-of-history path.
+      afterNextRender(
+        () => {
+          viewport.checkViewportSize();
+          viewport.scrollToIndex(index, 'auto');
+          this.flashHighlight(messageId);
+        },
+        { injector: this.injector },
+      );
+    });
+  }
+
+  private flashHighlight(messageId: number): void {
+    this.highlightId.set(messageId);
+
+    if (this.highlightTimer !== null) {
+      clearTimeout(this.highlightTimer);
+    }
+    this.highlightTimer = setTimeout(() => {
+      this.highlightTimer = null;
+      if (this.highlightId() === messageId) {
+        this.highlightId.set(null);
+      }
+    }, 1600);
   }
 
   /** Confirms before handing the URL to the OS, so a stray click cannot launch it. */
@@ -734,9 +1017,9 @@ export class ChatRoomComponent {
   }
 
   /**
-   * Opens the mention dialog. A user mention shows that person's profile; a group
-   * mention would list its members (not implemented yet); `@all` and an
-   * unresolvable user have no additional information, so the dialog opens empty.
+   * Opens the mention dialog. A user mention shows that person's profile; a role
+   * mention lists everyone holding that role; `@all` and an unresolvable user
+   * have no additional information, so the dialog opens empty.
    *
    * The dialog is imported on demand because `zContent` needs the component type
    * up front, which a `loadComponent` route cannot hand it.
@@ -757,14 +1040,47 @@ export class ChatRoomComponent {
     });
   }
 
-  /** The dialog title: the person's name, the group, or a generic label. */
+  /**
+   * How a chip reads. A role is displayed by its name alone, so the `role:`
+   * prefix stays in the stored message without leaking into the conversation.
+   */
+  protected mentionLabel(segment: { value: string; mention: Mention }): string {
+    const mention = segment.mention;
+    return mention.kind === 'group' && mention.group ? `@${mention.group}` : segment.value;
+  }
+
+  /** The dialog title: the person's name, the role, or a generic label. */
   protected mentionTitle(mention: Mention): string {
     if (mention.kind === 'user') {
       const user = mention.userId ? this.userService.getUserById(mention.userId) : undefined;
-      return user?.name || user?.username || 'Perfil';
+      return user?.name || user?.username || 'Usuário desconhecido';
     }
 
-    return mention.kind === 'group' ? 'Grupo' : 'Todos';
+    if (mention.kind === 'group') {
+      const name = mention.group ?? '';
+      return this.userService.findGroup(name)?.name ?? 'Grupo desconhecido';
+    }
+
+    return 'Todos';
+  }
+
+  /**
+   * Opens the profile of the user whose name was clicked. The dialog is imported
+   * on demand for the same reason the mention dialog is: `zContent` needs the
+   * component type up front.
+   */
+  protected async openUserInfo(userId: string): Promise<void> {
+    const { UserInfoDialogComponent } = await import(
+      '@/components/dialog/user-info/user-info-dialog.component'
+    );
+
+    this.dialogService.create<unknown, UserInfoDialogData>({
+      zTitle: 'Perfil',
+      zContent: UserInfoDialogComponent,
+      zData: { userId },
+      zHideFooter: true,
+      zWidth: '24rem',
+    });
   }
 
   protected presence(userId: string): { class: string; label: string } | null {
@@ -799,7 +1115,7 @@ export class ChatRoomComponent {
     // rejects empty or oversized content. Park the payload instead of dropping
     // it; a second failure while still offline replaces it, so nothing typed is
     // lost.
-    if (!this.socket.sendMessage(roomId, payload.content)) {
+    if (!this.socket.sendMessage(roomId, payload.content, payload.replyToId)) {
       this.pendingSend.set(payload);
       return;
     }
@@ -810,12 +1126,19 @@ export class ChatRoomComponent {
     // point of sending is to see what you sent.
     this.intent.set('always');
 
+    const replyTo = this.replyTarget();
     const message: MessageBroadcast = {
+      // The server assigns the real id; the optimistic copy only needs an id
+      // that cannot collide with a stored row.
+      id: 0,
       room_id: roomId,
       author: this.currentUserId ?? '',
       content: payload.content,
+      is_file: false,
+      reply_to: replyTo && replyTo.id === payload.replyToId ? replyTo : undefined,
       sentAt: new Date().toISOString(),
     };
+    this.replyTarget.set(null);
 
     this.messages.update(current => [...current, message]);
   }
@@ -835,12 +1158,15 @@ export class ChatRoomComponent {
           content: index === 0 ? payload.content : '',
           is_file: true,
           file_id: upload.id,
+          // A reply quotes one message, so it rides on the first entry too.
+          reply_to_id: index === 0 ? payload.replyToId : null,
         }));
 
         this.roomService.sendBatch(roomId, messages).subscribe({
           next: sent => {
             this.pendingSend.set(null);
             this.intent.set('always');
+            this.replyTarget.set(null);
             this.messages.update(current => [...current, ...sent]);
           },
           error: () => this.pendingSend.set(payload),
@@ -864,13 +1190,13 @@ export class ChatRoomComponent {
    * pause. The room is captured when the frame is sent, so a room change cannot
    * clear the wrong conversation.
    */
-  protected onTyping(value: string): void {
+  protected onTyping(typing: boolean): void {
     const roomId = this.roomId();
     if (!roomId) {
       return;
     }
 
-    if (!value.trim()) {
+    if (!typing) {
       this.stopTyping();
       return;
     }

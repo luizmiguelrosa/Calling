@@ -121,17 +121,17 @@ export class WebSocketService {
     };
   }
 
-  /** False when the socket is not open, so the caller can show it to the user. */
-  sendMessage(roomId: string, content: string): boolean {
-    const body = content.trim();
-    if (!body || body.length > MAX_CONTENT || this.socket?.readyState !== WebSocket.OPEN) {
-      return false;
-    }
+  	/** False when the socket is not open, so the caller can show it to the user. */
+  	sendMessage(roomId: string, content: string, replyToId?: number | null): boolean {
+  		const body = content.trim();
+  		if (!body || body.length > MAX_CONTENT || this.socket?.readyState !== WebSocket.OPEN) {
+  			return false;
+  		}
 
-    this.lastError.set(null);
-    this.socket.send(JSON.stringify({ room_id: roomId, content: body }));
-    return true;
-  }
+  		this.lastError.set(null);
+  		this.socket.send(JSON.stringify({ room_id: roomId, content: body, reply_to_id: replyToId ?? null }));
+  		return true;
+  	}
 
   /**
    * Relays a typing-state change. A "started" signal is kept until the sender

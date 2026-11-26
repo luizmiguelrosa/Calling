@@ -1,6 +1,6 @@
 # Chat Frontend Architecture
 
-This document provides a comprehensive guide for implementing the Tauri-based frontend for the Calling chat application, based on the Go backend API.
+This document provides a comprehensive guide for implementing the Tauri-based frontend for the Talk chat application, based on the Go backend API.
 
 ## Overview
 
@@ -56,7 +56,7 @@ interface User {
   id: string;
   username: string;
   name: string;
-  role: "Developer" | "Admin";
+  roles: { id: string; name: string; color: string }[];
   createdAt: string; // ISO timestamp
 }
 
@@ -64,7 +64,8 @@ interface CreateUserInput {
   username: string; // 3-32 chars
   password: string; // 8-72 chars
   name: string; // 2-64 chars
-  role: "Developer" | "Admin";
+  email: string;
+  role_ids: string[];
 }
 
 interface LoginRequest {
@@ -80,7 +81,7 @@ interface UserResponse {
   id: string;
   username: string;
   name: string;
-  role: "Developer" | "Admin";
+  roles: { id: string; name: string; color: string }[];
 }
 ```
 

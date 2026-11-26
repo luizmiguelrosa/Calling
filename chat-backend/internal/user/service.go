@@ -16,6 +16,7 @@ type Service interface {
 	GetByID(ctx context.Context, id string) (*User, error)
 	List(ctx context.Context) ([]UserResponse, error)
 	ExistsByID(ctx context.Context, id string) (bool, error)
+	ChangePassword(ctx context.Context, id, currentPassword, newPassword string) error
 }
 
 type userService struct {
@@ -47,19 +48,15 @@ func (s *userService) Register(ctx context.Context, input CreateUserInput) (User
 		Username: username,
 		Password: string(hash),
 		Name:     strings.TrimSpace(input.Name),
-		Role:     input.Role,
+		Role:     nil,
+		Groups:   []GroupRef{},
 	}
 
 	if err := s.repo.Create(ctx, u); err != nil {
 		return UserResponse{}, err
 	}
 
-	return UserResponse{
-		ID:       u.ID,
-		Username: u.Username,
-		Name:     u.Name,
-		Role:     u.Role,
-	}, nil
+	return response(u), nil
 }
 
 func (s *userService) ValidateCredentials(ctx context.Context, username string, password string) (*User, error) {
@@ -87,16 +84,32 @@ func (s *userService) List(ctx context.Context) ([]UserResponse, error) {
 
 	responses := make([]UserResponse, 0, len(users))
 	for _, u := range users {
-		responses = append(responses, UserResponse{
-			ID:       u.ID,
-			Username: u.Username,
-			Name:     u.Name,
-			Role:     u.Role,
-		})
+		responses = append(responses, response(u))
 	}
 	return responses, nil
 }
 
 func (s *userService) ExistsByID(ctx context.Context, id string) (bool, error) {
 	return s.repo.ExistsByID(ctx, id)
+}
+
+// ChangePassword verifies the current password before replacing it. An incorrect
+// current password is reported as unauthorized, not as a validation failure, so
+// the caller can tell a wrong password apart from a malformed request.
+func (s *userService) ChangePassword(ctx context.Context, id, currentPassword, newPassword string) error {
+	u, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(currentPassword)); err != nil {
+		return errors.New("unauthorized: current password is incorrect")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	return s.repo.UpdatePassword(ctx, id, string(hash))
 }

@@ -11,7 +11,7 @@ fn greet(name: &str) -> String {
 /// client falls back to the address it persists itself.
 #[tauri::command]
 fn get_api_url() -> Option<String> {
-    std::env::var("CALLING_API_URL")
+    std::env::var("TALKING_API_URL")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())

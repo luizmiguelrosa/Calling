@@ -4,10 +4,10 @@ import { ApiConfigService } from './api-config.service';
 import { AuthService } from './auth.service';
 
 /** The Cache Storage bucket every downloaded image lives in. */
-const CACHE_NAME = 'calling-images-v1';
+const CACHE_NAME = 'talk-images-v1';
 
 /** Where the user's retention choice is persisted. */
-const TTL_KEY = 'calling_cache_ttl_days';
+const TTL_KEY = 'talk_cache_ttl_days';
 
 /** The retention choices the settings offer, in days. */
 export const CACHE_TTL_OPTIONS = [7, 15, 30] as const;

@@ -13,9 +13,9 @@ export interface MentionDialogData {
 
 /**
  * Body of the mention dialog. A user mention resolves to a profile; `@all` lists
- * the room's users; a group mention would list its members (not implemented yet);
- * a user who has since left the directory carries no additional information, so
- * the dialog deliberately renders no content.
+ * the room's users; a group mention lists everyone belonging to that group; a user who
+ * has since left the directory carries no additional information, so the dialog
+ * deliberately renders no content.
  */
 @Component({
   selector: 'app-mention-dialog',
@@ -46,9 +46,38 @@ export interface MentionDialogData {
         </div>
       </div>
 
-      <dl class="mt-4 grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-sm">
+      <dl class="mt-4 grid grid-cols-[auto_1fr] items-start gap-x-4 gap-y-2 text-sm">
+        <dt class="text-muted-foreground">Grupos</dt>
+        <dd>
+          @if (profile.groups.length === 0) {
+            <span class="text-muted-foreground">Sem grupo</span>
+          } @else {
+            <span class="flex flex-wrap gap-1">
+              @for (group of profile.groups; track group.id) {
+                <span
+                  class="rounded-full px-2 py-0.5 text-xs text-white"
+                  [style.background]="group.color"
+                >
+                  {{ group.name }}
+                </span>
+              }
+            </span>
+          }
+        </dd>
+
         <dt class="text-muted-foreground">Cargo</dt>
-        <dd>{{ roleLabel(profile.role) }}</dd>
+        <dd>
+          @if (profile.role) {
+            <span
+              class="rounded-full px-2 py-0.5 text-xs text-white"
+              [style.background]="profile.role.color"
+            >
+              {{ profile.role.name }}
+            </span>
+          } @else {
+            <span class="text-muted-foreground">Sem cargo</span>
+          }
+        </dd>
 
         <dt class="text-muted-foreground">Status</dt>
         <dd class="flex items-center gap-2">
@@ -79,8 +108,27 @@ export interface MentionDialogData {
         }
       </ul>
     } @else if (mention.kind === 'group') {
-      <!-- TODO: render the group's members here once groups exist. Until then a
-           group mention has no additional information, so the body stays empty. -->
+      @if (group(); as resolved) {
+        <div class="flex items-center gap-2">
+          <span class="size-3 rounded-full ring-1 ring-border" [style.background]="resolved.color"></span>
+          <p class="text-base font-medium">{{ resolved.name }}</p>
+          <span class="ml-auto text-xs text-muted-foreground">{{ groupMembers().length }} membro(s)</span>
+        </div>
+
+        <ul class="mt-3 flex max-h-72 flex-col gap-1 overflow-auto">
+          @for (member of groupMembers(); track member.id) {
+            <li class="flex items-center gap-2 rounded-md p-1.5">
+              <app-user-avatar [userId]="member.id" [name]="member.name" [username]="member.username" />
+              <span class="min-w-0 flex-1 truncate text-sm">{{ member.name || member.username }}</span>
+              <span class="shrink-0 text-xs text-muted-foreground">{{ member.username }}</span>
+            </li>
+          }
+        </ul>
+      } @else {
+        <!-- A group that was removed or renamed no longer resolves; the chip stays
+             in the message but the dialog says the group is unknown. -->
+        <p class="text-sm text-muted-foreground">Grupo desconhecido</p>
+      }
     } @else {
       <!-- A user who has left the directory carries no additional information, so
            the dialog opens with no content. -->
@@ -103,17 +151,26 @@ export class MentionDialogComponent {
     return id ? this.userService.getUserById(id) ?? null : null;
   });
 
+  /** The group named by an `@group:` token, when it still exists. */
+  protected readonly group = computed(() => {
+    const name = this.mention.group;
+    return name ? this.userService.findGroup(name) ?? null : null;
+  });
+
+  /** Everyone in the directory who belongs to the mentioned group. */
+  protected readonly groupMembers = computed(() => {
+    const name = this.mention.group;
+    return name ? this.userService.groupMembers(name) : [];
+  });
+
   constructor() {
     // The `@all` list is the directory. The room view loads it too, and
     // `loadOnce` makes the second call a no-op once it has landed.
     this.userService.loadOnce().subscribe({ error: () => undefined });
+    this.userService.loadGroupsOnce().subscribe({ error: () => undefined });
   }
 
   protected presence(userId: string): { class: string; label: string } | null {
     return this.userService.presence(userId);
-  }
-
-  protected roleLabel(role: UserResponse['role']): string {
-    return role === 'Admin' ? 'Administrador' : 'Desenvolvedor';
   }
 }

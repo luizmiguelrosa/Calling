@@ -28,11 +28,16 @@ export class RoomService {
     return this.api.get<DMRoomResponse[]>('/rooms/dm');
   }
 
-  getRoomHistory(roomId: string): Observable<MessageBroadcast[]> {
-    return this.api.get<MessageBroadcast[]>(
-      `/history?room_id=${roomId}`
-    );
-  }
+  	getRoomHistory(roomId: string): Observable<MessageBroadcast[]> {
+  		return this.api.get<MessageBroadcast[]>(
+  			`/history?room_id=${roomId}`
+  		);
+  	}
+
+  	/** One message by id, used to quote a message that lives in another room. */
+  	getMessage(messageId: number): Observable<MessageBroadcast> {
+  		return this.api.get<MessageBroadcast>(`/messages/${messageId}`);
+  	}
 
   /**
    * Sends several messages in one request. Each entry may reference a file
